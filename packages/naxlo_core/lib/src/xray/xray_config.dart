@@ -349,15 +349,6 @@ class XrayConfigBuilder {
         'protocol': 'blackhole',
         'settings': <String, Object?>{'response': <String, Object?>{'type': 'none'}},
       },
-      <String, Object?>{
-        'tag': 'dns-out',
-        'protocol': 'dokodemo-door',
-        'settings': <String, Object?>{
-          'address': '127.0.0.1',
-          'network': 'tcp,udp',
-          'port': 53,
-        },
-      },
     ];
   }
 
@@ -368,12 +359,21 @@ class XrayConfigBuilder {
     final rules = <Map<String, Object?>>[];
 
     if (profile.dns.leakProtect && profile.dns.strategy != DnsStrategy.systemOnly) {
+      // Captured DNS leaves through the tunnel — the sing-box side expresses the same
+      // choice as `detour: proxy` on its remote servers. This used to point at a
+      // `dns-out` outbound built on `dokodemo-door`, which is an *inbound* protocol:
+      // Xray refused every generated config with `unknown config id: dokodemo-door`,
+      // and sending 53 to 127.0.0.1:53 was the leak the switch exists to prevent.
+      // TCP too, because resolver responses over 512 bytes fall back to TCP and that
+      // path leaking is exactly how a "protected" query ends up on the wire anyway.
       rules.add(<String, Object?>{
         'type': 'field',
-        'network': 'udp',
+        'network': 'tcp,udp',
         'port': '53',
-        'outboundTag': 'dns-out',
+        'outboundTag': outboundTag,
       });
+      warnings.add('leak-protect routes application DNS through the tunnel; Xray itself '
+          'still queries its configured DNS servers directly.');
     }
     for (final rule in r.rules.where((x) => x.enabled)) {
       final mapped = _rule(rule, warnings);
