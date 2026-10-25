@@ -66,7 +66,12 @@ void main() {
       final old = ServerMetrics();
       old.observe(SamplePoint.failure(atMs: 0, error: 'reset'), halfLifeMs: 90000);
       old.observe(SamplePoint.success(atMs: 900000, latencyMs: 90), halfLifeMs: 90000);
-      expect(old.reliability > 0.9, isTrue, reason: 'both weights decayed, prior dominates');
+      // The decay is what this pins: the old failure has been forgotten. It shows
+      // up in the *observed* rate (which has no prior to hide behind); the ranked
+      // `reliability` stays shrunken toward 0.5 because there is still only one
+      // sample either way.
+      expect(old.observedRate > 0.9, isTrue, reason: 'both weights decayed, the failure is gone');
+      expect(old.reliability > recent.reliability, isTrue);
 
       final recent = ServerMetrics();
       recent.observe(SamplePoint.failure(atMs: 900000, error: 'reset'), halfLifeMs: 90000);
@@ -77,8 +82,10 @@ void main() {
     test('risk-adjusted reliability punishes tiny samples', () {
       final oneOk = observed(latencies: <int>[50]);
       final proven = observed(latencies: List<int>.filled(200, 50));
-      expect(oneOk.reliability, greaterThan(proven.reliability),
-          reason: 'raw mean looks great for 1/1');
+      expect(oneOk.observedRate, greaterThanOrEqualTo(proven.observedRate),
+          reason: 'the raw rate looks perfect for 1/1 — which is why we do not rank on it');
+      expect(oneOk.reliability, lessThan(proven.reliability),
+          reason: 'the Jeffreys prior keeps a single success from reading as certain');
       expect(oneOk.reliabilityLcb < proven.reliabilityLcb, isTrue,
           reason: 'the lower bound is what we actually rank on');
     });

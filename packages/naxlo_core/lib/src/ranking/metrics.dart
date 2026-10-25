@@ -83,21 +83,38 @@ class ServerMetrics {
   int ageMs(int nowMs) => math.max(0, nowMs - lastSampleAtMs);
 
   double get reliability {
+    // Jeffreys posterior mean, not the raw rate. With the raw rate a single
+    // lucky probe reads as "100% reliable" and outranks a node that has been up
+    // for six hours; on a proxy client that one-sample flip is what makes people
+    // stop trusting the ranking. 1/1 -> 0.75, 200/200 -> 0.9975, nothing -> 0.5.
     final total = okWeight + failWeight;
-    if (total <= 0) return 0.5;
+    return (okWeight + 0.5) / (total + 1.0);
+  }
+
+  /// What the observations literally said, prior excluded: `ok / (ok + fail)`
+  /// over the decayed window. `NaN` when there is nothing to report, because
+  /// "no data" is not a rate of zero.
+  ///
+  /// This is the number to *display*. `reliability` above is the number to rank
+  /// on; showing a shrunken posterior as a percentage reads as "3 of my 4 probes
+  /// failed" when it actually means "1 success, not enough evidence yet".
+  double get observedRate {
+    final total = okWeight + failWeight;
+    if (total <= 0) return double.nan;
     return okWeight / total;
   }
 
   double get reliabilityVariance {
-    final a = okWeight, b = failWeight;
+    // Beta(a, b) variance with the same Jeffreys prior, so the spread shrinks as
+    // evidence accumulates instead of being computed from a point estimate.
+    final a = okWeight + 0.5, b = failWeight + 0.5;
     final total = a + b;
-    if (total <= 0) return 0.25;
     return (a * b) / (total * total * (total + 1));
   }
 
   double get reliabilitySd => math.sqrt(reliabilityVariance);
 
-  /// Conservative reliability: posterior mean minus one standard deviation,
+  /// Conservative reliability: posterior mean minus k standard deviations,
   /// floored at 0. This is what punishes a node that "looks great" on two
   /// samples, and what rewards one that has been up for hours.
   double get reliabilityLcb {
@@ -199,7 +216,13 @@ class ServerMetrics {
       health = HealthState.down;
       return;
     }
-    if (consecutiveFailures > 0 || reliability < 0.7 || reliabilitySd > 0.22) {
+    // The spread test only means something once there is a spread to measure: one
+    // sample has a wide posterior by construction, and calling that "degraded"
+    // would badge every freshly imported node as broken. Confidence lives in the
+    // score, not in the status dot.
+    if (consecutiveFailures > 0 ||
+        reliability < 0.7 ||
+        (reliabilitySd > 0.22 && totalSamples >= 3)) {
       health = HealthState.degraded;
       return;
     }

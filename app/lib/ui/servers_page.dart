@@ -318,7 +318,16 @@ Future<void> showRankingSheet(BuildContext context, RankedServer r, AppState app
               const SizedBox(height: 6),
               KvRow(key_: l10n.t('label.latency'), value: '${r.latencyMs} ${l10n.t('unit.ms')}'),
               KvRow(key_: l10n.t('label.jitter'), value: '${r.jitterMs} ${l10n.t('unit.ms')}'),
-              KvRow(key_: l10n.t('label.reliability'), value: '${(metrics.reliability * 100).toStringAsFixed(1)}%'),
+              // `observedRate`, not `reliability`: the row right below shows the
+              // sample count, and a user who reads "75.0%" next to "4 samples"
+              // would conclude the last probe failed. The shrunken posterior is a
+              // ranking input, not a measurement report.
+              KvRow(
+                key_: l10n.t('label.reliability'),
+                value: metrics.hasSamples
+                    ? '${(metrics.observedRate * 100).toStringAsFixed(1)}%'
+                    : '—',
+              ),
               KvRow(
                 key_: 'samples',
                 value: '${metrics.totalSamples}',

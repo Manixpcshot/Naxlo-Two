@@ -80,13 +80,24 @@ four times. That is not evidence, it is a small number. We use a Beta posterior
 with a Jeffreys prior (`α = β = 0.5`) and then take a **lower** bound:
 
 ```
-reliability   = (ok + 0.5) / (ok + fail + 1)          # point estimate
-reliabilityLcb = quantile-ish lower bound, used for scoring
+ok, fail        = decayed sample weights (half-life as below)
+reliability     = (ok + 0.5) / (ok + fail + 1)   # Beta posterior mean, ranks on this
+reliabilityLcb  = reliability − k·sd, k = 0.75 + 0.15·consecutiveFailures (≤ 1.25)
+observedRate    = ok / (ok + fail)               # what the UI prints
 ```
 
+Three numbers, three audiences. `reliability` scores the node; `reliabilityLcb`
+is what `isEligible` and the switch margin look at, so a node cannot win on a
+lucky streak; `observedRate` is what a person reads next to a sample count — a
+user who sees "75.0%" and "4 samples" concludes a probe failed, when 75.0% was
+the *shrunken* reading of 4/4.
+
 Practical effect: 4/4 up scores *near* but below a 400/402 server, and "healthy"
-requires `reliabilityLcb ≥ 0.7`. Three consecutive failures mark the node `down`
-regardless of history — an outage is information, not noise to be averaged away.
+requires `reliability ≥ 0.7` with the spread rule muted until there are ≥3
+samples (one sample has a wide posterior by construction; badging that as
+degraded would mark every freshly imported node broken). Three consecutive
+failures mark the node `down` regardless of history — an outage is information,
+not noise to be averaged away.
 
 Failures also decay: `failWeight` halves with the same half-life, so yesterday's
 outage does not disqualify a server forever. That asymmetry is deliberate: it is
