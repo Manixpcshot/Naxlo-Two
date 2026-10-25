@@ -71,12 +71,12 @@ void main() {
       // `reliability` stays shrunken toward 0.5 because there is still only one
       // sample either way.
       expect(old.observedRate > 0.9, isTrue, reason: 'both weights decayed, the failure is gone');
-      expect(old.reliability > recent.reliability, isTrue);
 
       final recent = ServerMetrics();
       recent.observe(SamplePoint.failure(atMs: 900000, error: 'reset'), halfLifeMs: 90000);
       recent.observe(SamplePoint.success(atMs: 901000, latencyMs: 90), halfLifeMs: 90000);
-      expect(recent.reliability < old.reliability, isTrue);
+      expect(recent.reliability < old.reliability, isTrue,
+          reason: 'a failure one second ago still counts');
     });
 
     test('risk-adjusted reliability punishes tiny samples', () {

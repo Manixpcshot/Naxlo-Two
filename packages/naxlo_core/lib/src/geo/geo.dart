@@ -2,6 +2,7 @@
 /// *not* bundled: the engines ship their own .dat files, and shipping
 /// CC-BY-NC-SA data in a release artifact would be a license problem. These
 /// lists cover the cases that actually need to be right on a client.
+library;
 
 /// RFC1918 + loopback + link-local + CGNAT + doc ranges.
 const List<String> kPrivateIpv4Cidrs = <String>[

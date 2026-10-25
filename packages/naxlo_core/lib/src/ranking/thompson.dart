@@ -88,6 +88,7 @@ class ThompsonSampler {
     // minute. With the median at the EWMA, E[draw] = mean · exp(σ²/2) > mean: a
     // jittery node is scored as if it were slower than it usually is, which is the
     // "what might it do" the caller asks for.
+    final mu = math.log(meanMs);
     final draw = math.exp(mu + sigma * normal());
     return draw.clamp(floorMs, 60000.0).toDouble();
   }

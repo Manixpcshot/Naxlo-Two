@@ -54,7 +54,9 @@ jobs:
       # API, and also copies it into the job summary.
       - name: Analyze
         run: |
-          if dart analyze > analyze.log 2>&1; then
+          # Same policy as the app job: lints are a bar, not a gate; errors and
+          # warnings still fail the build.
+          if dart analyze --no-fatal-infos > analyze.log 2>&1; then
             echo "analyze clean"
           else
             bash ../../scripts/annotate_log.sh analyze.log --max 5
@@ -295,6 +297,20 @@ jobs:
             exit 1
           fi
           tail -12 fetch.log
+
+      - name: Install Linux desktop toolchain
+        # `flutter build linux` is not a Dart-only build: runner images ship
+        # cmake/ninja/clang but *not* the GTK dev package, so CMake dies in
+        # `pkg_check_modules` with "required packages were not found: gtk+-3.0"
+        # long before anything of ours is compiled. Documented in
+        # docs/PACKAGING.md, and `packaging/linux/build_packages.sh` names the same
+        # set so a local failure says the same sentence as this step.
+        if: matrix.target == 'linux-x64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libgtk-3-dev liblzma-dev libunwind-dev x11-apps appindicator3-0.1 libappindicator3-dev
+          pkg-config --modversion gtk+-3.0
 
       - name: Build
         run: |

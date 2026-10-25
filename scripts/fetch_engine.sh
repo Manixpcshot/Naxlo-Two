@@ -235,8 +235,13 @@ fetch_xray() {
         if (length(run) == 64) { print run; exit }
       }' "$tmp/$asset.dgst")"
     if [[ -z "$from_dgst" ]]; then
-      # Bare "<hex>  <filename>" lines (coreutils format), SHA256-length only.
-      from_dgst="$(awk '$1 ~ /^[0-9a-fA-F]+$/ && length($1) == 64 { print $1; exit }' "$tmp/$asset.dgst")"
+      # Label-independent: split the file on every non-hex character and take the
+      # first token that is *exactly* 64 hex characters. MD5 (32), SHA1 (40) and
+      # SHA512 (128) runs are all rejected by the length test, so this works for
+      # "SHA256= <hex>", "<hex>  file", "sha2-256: <hex>" and any other spelling
+      # without knowing it in advance.
+      from_dgst="$(tr -c '0-9a-fA-F' '\n' <"$tmp/$asset.dgst" \
+        | awk 'length($0) == 64 { print tolower($0); exit }')"
     fi
     if check_against "upstream .dgst" "$actual" "$from_dgst"; then
       status=0
@@ -253,8 +258,11 @@ fetch_xray() {
       # a developer/CI build should still work (loudly), a release must not
       # ship an engine we could not tie to what upstream published.
       if [[ -s "$tmp/$asset.dgst" ]]; then
-        echo "  could not read a sha256 out of the digest file; first line was:" >&2
-        echo "    $(head -1 "$tmp/$asset.dgst" | cut -c1-160)" >&2
+        # Dump it entirely: it is four hash lines, nothing secret, and the last
+        # round's "first line only" evidence was not enough to tell a missing
+        # SHA256 field from a parser bug.
+        echo "  could not read a sha256 out of the digest file:" >&2
+        sed -E 's/^/    /' "$tmp/$asset.dgst" | cut -c1-170 | head -8 >&2
       fi
       if [[ $require_pin -eq 1 ]]; then
         echo "fetch_engine: refusing to ship $asset with no verifiable digest" >&2

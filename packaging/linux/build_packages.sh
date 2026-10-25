@@ -34,7 +34,20 @@ case "$arch" in
     ;;
 esac
 
-[[ -d "$bundle_dir" ]] || { echo "build_packages: no build output at $bundle_dir (run 'flutter build linux --release')" >&2; exit 1; }
+[[ -d "$bundle_dir" ]] || {
+  echo "build_packages: no build output at $bundle_dir" >&2
+  echo "  run 'flutter build linux --release' in $app first." >&2
+  # The build before this one is CMake, not Dart: a runner or a fresh distro that
+  # has clang but not the GTK dev package dies in pkg_check_modules with a message
+  # that does not mention packaging at all, so the hint belongs here too.
+  if command -v pkg-config >/dev/null 2>&1 && ! pkg-config --exists gtk+-3.0; then
+    echo "  and note: gtk+-3.0 is not available to pkg-config on this machine." >&2
+    echo "    Debian/Ubuntu: sudo apt-get install -y libgtk-3-dev liblzma-dev libunwind-dev" >&2
+    echo "    Fedora:        sudo dnf install -y gtk3-devel xz-devel" >&2
+    echo "    Arch:          sudo pacman -S gtk3" >&2
+  fi
+  exit 1
+}
 
 dist="$app/dist"
 stage="$root/build/stage-$arch"

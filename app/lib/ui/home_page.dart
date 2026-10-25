@@ -182,6 +182,13 @@ class _ActiveNodeCard extends StatelessWidget {
     final id = app.activeServerId;
     final node = id.isEmpty ? null : profile.byId(id);
     final rank = app.rankOf(id);
+    // The measurement for the pill below. `metricsOf` is nullable (a node can be
+    // ranked before it is ever probed) and `observedRate` is NaN with no samples,
+    // so both are resolved once here rather than three times inline.
+    final shown = rank == null ? null : app.metricsOf(rank.serverId);
+    final rateLabel = (shown == null || !shown.hasSamples || shown.observedRate.isNaN)
+        ? '—'
+        : '${(shown.observedRate * 100).round()}%';
     if (node == null) {
       return Panel(
         child: Row(
@@ -238,12 +245,7 @@ class _ActiveNodeCard extends StatelessWidget {
               // conservative lower bound we score on, which for a node with one good
               // probe reads "50%" under a green bar; the pill next to it already says
               // how much to trust the number, so the pair is rate + confidence.
-              _MetricPill(
-                label: l10n.t('label.reliability'),
-                value: rank == null || !app.metricsOf(rank.serverId).hasSamples
-                    ? '—'
-                    : '${(app.metricsOf(rank.serverId).observedRate * 100).round()}%',
-              ),
+              _MetricPill(label: l10n.t('label.reliability'), value: rateLabel),
               _MetricPill(label: l10n.t('label.confidence'), value: rank == null ? '—' : '${(rank.confidence * 100).round()}%'),
               if (pinned)
                 _MetricPill(label: '', value: l10n.t('status.pinned'), accent: Palette.amber, icon: Icons.push_pin_rounded),
