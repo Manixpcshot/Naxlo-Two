@@ -104,19 +104,25 @@ void main() {
 
     test('stickiness rewards the node already carrying traffic', () {
       final a = withLatency(100);
-      final unpinned = Ranker(config: simple).rank(
-        servers: <ServerNode>[node('x')],
-        metrics: <String, ServerMetrics>{'x': a},
-        nowMs: 1000000,
-      );
-      final pinned = Ranker(config: simple).rank(
-        servers: <ServerNode>[node('x')],
-        metrics: <String, ServerMetrics>{'x': a},
-        nowMs: 1000000,
-        currentServerId: 'x',
-      );
-      expect(pinned.first.score > unpinned.first.score, isTrue);
-      expect(pinned.first.reasons.any((r) => r.contains('stickiness')), isTrue);
+      final advanced = const RankingConfig(mode: RankingMode.advanced);
+      List<RankedServer> rank(String current, RankingConfig cfg) => Ranker(config: cfg).rank(
+            servers: <ServerNode>[node('x')],
+            metrics: <String, ServerMetrics>{'x': a},
+            nowMs: 1000000,
+            currentServerId: current,
+          );
+
+      expect(rank('x', advanced).first.score, greaterThan(rank('', advanced).first.score));
+      expect(rank('x', advanced).first.reasons.any((r) => r.contains('stickiness')), isTrue);
+
+      // And it is deliberately *absent* from `simple`: in "median latency" mode
+      // the list the user reads must not be reordered by which node happens to be
+      // carrying traffic right now — that would make the ranking look arbitrary
+      // exactly when the user is trying to compare nodes. Resistance to flapping
+      // lives in the selector (dwell + switch margin), which applies in both
+      // modes, so nothing is lost by keeping it out of the score.
+      expect(rank('x', simple).first.score, rank('', simple).first.score);
+      expect(rank('x', simple).first.reasons.any((r) => r.contains('stickiness')), isFalse);
     });
 
     test('advanced mode is deterministic for a fixed seed', () {

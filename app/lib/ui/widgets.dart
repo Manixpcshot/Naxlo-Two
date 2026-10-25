@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:naxlo_core/naxlo_core.dart';
 
-import '../l10n/strings.dart';
-import '../theme/palette.dart';
+import 'package:naxlo_two/l10n/strings.dart';
+import 'package:naxlo_two/theme/palette.dart';
 
 /// Small shared UI pieces. Kept in one file because every page uses a few of
 /// them and a folder of 6-line widget files makes the diff noise worse than the
@@ -148,7 +148,9 @@ class ScoreBar extends StatelessWidget {
           Padding(
             padding: const EdgeInsetsDirectional.only(start: 8),
             child: Text(
-              '${(fraction * 100).toStringAsFixed(0)}',
+              // No surrounding `'${…}'`: the value is already a String, and the
+              // interpolation was only making the lint complain.
+              (fraction * 100).toStringAsFixed(0),
               style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),

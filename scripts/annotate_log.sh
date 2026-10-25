@@ -94,7 +94,11 @@ grep -E -A "$ctx" -- "$pattern" "$log" 2>/dev/null |
 
 # Never silent: an annotation guard that prints nothing when the log's format
 # changes is indistinguishable from a passing step. Say so, and show the tail.
-if ! grep -qE -- "\[E\]$|(^|[^[:alnum:]_])(error|warning|Error)([^[:alnum:]_]|$)|FAIL|failed|Exception" "$log"; then
+# The guard has to ask about *the same pattern the packer used*, case-insensitively.
+# With its own narrower list it called "WARNING - no verifiable digest" a
+# non-diagnostic and printed "nothing matched" over a log that was full of them —
+# which is how a real failure looked like an empty one.
+if ! grep -qiE -- "$pattern" "$log"; then
   tail="$(tail -12 "$log" | clean | awk '{printf "%s%s", (NR > 1 ? "%0A" : ""), $0}')"
   echo "::${level}::annotate_log: nothing matched the diagnostic pattern; raw tail:%0A${tail}"
 fi

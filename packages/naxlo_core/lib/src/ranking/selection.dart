@@ -101,6 +101,7 @@ class SelectionDecision {
     this.currentScore = 0,
     this.marginNeeded = 0,
     this.waitMs = 0,
+    this.betterId = '',
   });
 
   final SelectOutcome outcome;
@@ -116,6 +117,11 @@ class SelectionDecision {
 
   /// How long the current leader must keep leading before we act.
   final int waitMs;
+
+  /// The node that outranks the incumbent, on a `keep`. Empty when the incumbent
+  /// is still #1. Distinct from [serverId] (the node we *stay* on), which is why
+  /// both exist: see [ServerSelector.apply].
+  final String betterId;
 
   bool get changed => outcome == SelectOutcome.switched || outcome == SelectOutcome.failover;
 
@@ -226,6 +232,7 @@ class ServerSelector {
         currentScore: current.score,
         score: best.score,
         marginNeeded: margin,
+        betterId: best.serverId,
       );
     }
 
@@ -236,12 +243,13 @@ class ServerSelector {
       return SelectionDecision(
         outcome: SelectOutcome.keep,
         serverId: current.serverId,
-        reason: '${best.serverId} leads by ${_pct(gap)} but must hold ${_sec(needDwell)} longer '
-            '(anti-flap dwell)',
+        reason: '${best.serverId} leads by ${_pct(gap)} but needs ${_sec(needDwell)} more of '
+            'sustained lead (anti-flap dwell)',
         currentScore: current.score,
         score: best.score,
         marginNeeded: margin,
         waitMs: needDwell,
+        betterId: best.serverId,
       );
     }
 
@@ -257,6 +265,7 @@ class ServerSelector {
         score: best.score,
         marginNeeded: margin,
         waitMs: cooldownLeft,
+        betterId: best.serverId,
       );
     }
 
@@ -275,14 +284,19 @@ class ServerSelector {
   SelectionState apply(SelectionState state, SelectionDecision decision, {required int nowMs}) {
     if (decision.serverId.isEmpty) return state;
     if (decision.outcome == SelectOutcome.keep) {
-      final stillBetter = decision.waitMs > 0 && decision.marginNeeded > 0;
+      // Track the *leader*, not `decision.serverId`. On a keep, `serverId` is the
+      // node we stay on, so starting the dwell timer for it produced a timer for a
+      // node that is by definition not a threat: the next round reset it again, and
+      // automatic switching could therefore never happen at all.
+      final leader = decision.betterId;
+      final tracking = leader.isNotEmpty && leader != state.currentServerId;
       return state.copyWith(
-        // Track who is currently ahead so the dwell timer measures the right
-        // candidate; reset it the moment they stop being a threat.
-        betterSinceMs: stillBetter ? (state.betterCandidateId == decision.serverId && state.betterSinceMs > 0
-            ? state.betterSinceMs
-            : nowMs) : 0,
-        betterCandidateId: stillBetter ? decision.serverId : '',
+        betterSinceMs: tracking
+            ? (state.betterCandidateId == leader && state.betterSinceMs > 0
+                ? state.betterSinceMs
+                : nowMs)
+            : 0,
+        betterCandidateId: tracking ? leader : '',
         lastReason: decision.reason,
       );
     }

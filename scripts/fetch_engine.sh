@@ -220,9 +220,19 @@ fetch_xray() {
     # unambiguous without needing intervals at all.
     local from_dgst
     from_dgst="$(awk '
-      tolower($0) ~ /sha256/ {
-        for (i = 1; i <= NF; i++)
-          if (length($i) == 64 && $i ~ /^[0-9a-fA-F]+$/) { print $i; exit }
+      {
+        line = tolower($0)
+        p = index(line, "sha256")
+        if (p == 0) next
+        rest = substr(line, p + 6)
+        run = ""
+        for (i = 1; i <= length(rest); i++) {
+          c = substr(rest, i, 1)
+          if (c ~ /^[0-9a-f]$/) { run = run c; continue }
+          if (length(run) == 64) { print run; exit }
+          run = ""
+        }
+        if (length(run) == 64) { print run; exit }
       }' "$tmp/$asset.dgst")"
     if [[ -z "$from_dgst" ]]; then
       # Bare "<hex>  <filename>" lines (coreutils format), SHA256-length only.
@@ -242,6 +252,10 @@ fetch_xray() {
       # download of it failed. Two policies, because the two callers differ:
       # a developer/CI build should still work (loudly), a release must not
       # ship an engine we could not tie to what upstream published.
+      if [[ -s "$tmp/$asset.dgst" ]]; then
+        echo "  could not read a sha256 out of the digest file; first line was:" >&2
+        echo "    $(head -1 "$tmp/$asset.dgst" | cut -c1-160)" >&2
+      fi
       if [[ $require_pin -eq 1 ]]; then
         echo "fetch_engine: refusing to ship $asset with no verifiable digest" >&2
         echo "  computed sha256 $actual" >&2

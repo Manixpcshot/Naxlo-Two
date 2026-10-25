@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:naxlo_core/naxlo_core.dart';
 import 'package:provider/provider.dart';
 
-import '../l10n/strings.dart';
-import '../state/app_state.dart';
-import '../theme/palette.dart';
-import '../version_info.dart';
-import 'widgets.dart';
+import 'package:naxlo_two/l10n/strings.dart';
+import 'package:naxlo_two/state/app_state.dart';
+import 'package:naxlo_two/theme/palette.dart';
+import 'package:naxlo_two/ui/widgets.dart';
+import 'package:naxlo_two/version_info.dart';
 
 /// Settings, ordered the way a user actually needs it: what is running now,
 /// then the knobs that change today's behaviour, then the ranking tuning, then
@@ -56,13 +56,13 @@ class SettingsPage extends StatelessWidget {
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('probe while connected'),
+                    title: const Text('probe while connected'),
                     value: s.probeWhileConnected,
                     onChanged: (v) => app.updateSettings(s.copyWith(probeWhileConnected: v)),
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('connect on launch'),
+                    title: const Text('connect on launch'),
                     value: s.autoConnectOnLaunch,
                     onChanged: (v) => app.updateSettings(s.copyWith(autoConnectOnLaunch: v)),
                   ),
@@ -139,7 +139,7 @@ class SettingsPage extends StatelessWidget {
                       if (!context.mounted) return;
                       final d = app.updateAvailable;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(d == null ? 'up to date (${kAppVersion})' : '${d.available}: ${d.reason}')),
+                        SnackBar(content: Text(d == null ? 'up to date ($kAppVersion)' : '${d.available}: ${d.reason}')),
                       );
                     },
                   ),
@@ -185,8 +185,10 @@ class SettingsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  KvRow(key_: 'version', value: kAppVersion),
-                  KvRow(key_: 'core', value: kNaxloVersion == kAppVersion ? 'bundled' : kNaxloVersion),
+                  const KvRow(key_: 'version', value: kAppVersion),
+                  // Both sides of the ternary are compile-time constants, so this
+                  // one is const too.
+                  const KvRow(key_: 'core', value: kNaxloVersion == kAppVersion ? 'bundled' : kNaxloVersion),
                   KvRow(key_: 'engine', value: app.engine.pid == null ? 'stopped' : 'pid ${app.engine.pid}'),
                   Padding(
                     padding: const EdgeInsets.only(top: 8),

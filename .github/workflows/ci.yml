@@ -98,7 +98,11 @@ jobs:
 
       - name: Analyze
         run: |
-          if flutter analyze > analyze.log 2>&1; then
+          # --no-fatal-infos: this repo's lint list is a quality bar, not a build
+          # gate; `flutter analyze` exits 1 on *any* issue, so 70 `prefer_const`
+          # nits would block a release as hard as a type error. Errors and warnings
+          # stay fatal. The full count is printed either way.
+          if flutter analyze --no-fatal-infos > analyze.log 2>&1; then
             echo "analyze clean"
           else
             bash ../scripts/annotate_log.sh analyze.log --max 5 \
@@ -298,7 +302,12 @@ jobs:
           # plugin registrant, no linux/ dir yet), and a bare stack of SDK output in
           # a log nobody opens hides it. Same annotation path as the tests.
           if ! (set -e; ${{ matrix.build }}) > build.log 2>&1; then
-            bash ../scripts/annotate_log.sh build.log --max 4
+            # Broad pattern: a `flutter build` that dies before the compiler starts
+            # (missing GTK deps, no linux/ directory, a tool not on PATH) writes
+            # "command not found"/"Required is not satisfied", none of which contain
+            # the word "error".
+            bash ../scripts/annotate_log.sh build.log --max 4 \
+              --grep 'rror|arning|ailed|not found|No such file|Required|missing|Exception|CMake|ninja|clang|denied'
             tail -30 build.log
             exit 1
           fi

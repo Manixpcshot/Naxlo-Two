@@ -92,7 +92,17 @@ Failures also decay: `failWeight` halves with the same half-life, so yesterday's
 outage does not disqualify a server forever. That asymmetry is deliberate: it is
 better to re-try a server that came back than to abandon it permanently.
 
-### 3. Jitter and stability are different things
+### 3. Latency draws are median-anchored, so variance is not free
+
+`advanced` scores the *draw*, not the mean: `sampleLatencyMs` fits a log-normal
+whose **median** is the EWMA, giving `E[draw] = mean · exp(σ²/2) > mean`. Centring
+the log at `log(mean) − σ²/2` (the unbiased parameterisation) would make
+high variance free in expectation — and a ranker where risk is free keeps
+choosing the node that spikes every third minute. The test in
+`metrics_test.dart` ("log-normal is right-skewed") pins which of the two this
+project means.
+
+### 4. Jitter and stability are different things
 
 `jitterEwmaMs` is the decayed mean absolute deviation of latency — how much the
 same server moves around. `stability` penalises *the app's experience* of it:
@@ -101,7 +111,7 @@ bottom of the list. A server can be low-jitter and still unstable (TLS handshake
 succeeds instantly, then the tunnel drops in 20 s), which is exactly the case a
 ping list cannot see at all.
 
-### 4. Normalisation is median-based, not min-max
+### 5. Normalisation is median-based, not min-max
 
 Min-max across the current candidate set has a nasty property: one outlier (a
 server at 6 s because it is 9000 km away) compresses every "normal" server's
@@ -110,7 +120,7 @@ latency difference into 0.001, so the ranking collapses into noise and the
 instead, which keeps 40 ms vs 90 ms meaning roughly the same thing whether or not
 someone added a server in Australia.
 
-### 5. Missing data is a middle score, not a zero
+### 6. Missing data is a middle score, not a zero
 
 An unmeasured node gets `_unknownComponent = 0.55` for latency/jitter/throughput.
 Not 0 — that would mean "unproven is worse than proven bad", which permanently
@@ -118,7 +128,7 @@ locks out new servers. Not 1 — that would let a fresh import steal your traffi
 before it has done anything. It is a slight lean toward "give it a look", and
 `exploration` does the actual pushing.
 
-### 6. Exploration is a Thompson draw, not an ε-greedy coin flip
+### 7. Exploration is a Thompson draw, not an ε-greedy coin flip
 
 For each candidate we draw `θ ~ Beta(ok + 0.5, fail + 0.5)` and combine it with a
 latency-shaped normal draw; `ThompsonSampler.pick()` then scales the winner by
@@ -135,7 +145,7 @@ traffic to a node the data says is bad for more than the exploration weight
 allows. `seed` makes it deterministic, which is what makes the tests in
 `test/ranker_test.dart` meaningful.
 
-### 7. Manual bias is small on purpose
+### 8. Manual bias is small on purpose
 
 The user's −100..+100 slider contributes `±0.05` (`weight/100 · 0.05`). It is an
 intentional nudge between comparable options, not a way to fight the data. If a
@@ -151,15 +161,36 @@ path, different constants:
 
 | | simple | advanced |
 | --- | --- | --- |
-| latency / jitter / reliability weights | 1.0 / 0.25 / 0.25 | user-configurable (7 weights) |
-| throughput, freshness, stability | off | on |
+| latency / jitter / reliability weights | 1.0 / 0 / 0.25 | user-configurable (7 weights) |
+| throughput, freshness | off | on |
+| stability (failure streaks) | 0.25 — kept, a node failing right now must not win | `stability` |
+| stickiness (prefer the active node) | **off** | `stickiness` |
 | exploration | **0** | `exploration` |
 | decay | long half-life, gentle | `halfLifeMs` as configured |
 
-No branch in the maths, so both modes are exercised by the same tests.
+No branch in the maths, so both modes are exercised by the same tests —
+`simple` is the same scorer with a different weight vector
+(`RankingConfig.effectiveForMode`).
+
+Two of those choices are deliberate and were argued out by tests:
+
+* **stickiness is off in `simple`.** In "median latency" mode the list the user
+  reads has to be ordered by median latency, and a bonus for whichever node
+  happens to be carrying traffic makes it look arbitrary exactly when someone
+  is comparing nodes. Resistance to flapping is the selector's job (dwell +
+  switch margin), and that applies in both modes.
+* **missing data scores in the middle, for every component.** `simple` and
+  `advanced` both use a Jeffreys lower bound for *observed* failures, which is
+  a pessimistic reading of data you have. Applying it to "no data at all" would
+  put a freshly imported node below a flaky one, permanently — the ranker would
+  never probe it hard enough to find out it was the best server in the list.
 
 ## Scoring is not switching
 
+`SelectionDecision` carries two ids, because a `keep` needs both: `serverId` is
+the node to stay on, `betterId` is the node currently ahead of it. Dwell timing
+must follow `betterId` — timing the incumbent measures the wrong thing and the
+leader's streak never accumulates, so auto-switching silently never fires.
 A high-scoring server must also *earn the move*, because every switch costs a
 reconnect: TCP+TLS handshakes, a new latency ramp, and for the user a dropped
 download. `ServerSelector.decide()` implements that with three knobs:

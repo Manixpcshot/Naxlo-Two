@@ -163,7 +163,7 @@ class ShareLinkParser {
     return ShareLinkImport(nodes: nodes, errors: errors);
   }
 
-  static String _ellipsis(String s) => s.length <= 42 ? '${s.substring(0, 42)}…' : s;
+  static String _ellipsis(String s) => s.length <= 42 ? s : '${s.substring(0, 42)}…';
 
   static int _counter = 0;
   static String _newId() {
@@ -375,7 +375,12 @@ class ShareLinkParser {
         for (final part in plugin.split(';').skip(1)) {
           final kv = part.split('=');
           if (kv.length == 2) {
-            if (kv[0] == 'obfs-host') pluginHost = kv[1];
+            // `#` ends the value: panels frequently append their own remark
+            // unencoded (`…;obfs-host=cdn#Node-7`), and the query split above has
+            // already consumed the *real* fragment, so a surviving `#` is junk. A
+            // hostname can never contain one, so truncating is strictly safer than
+            // handing `cdn#Node-7` to the engine as a TLS SNI.
+            if (kv[0] == 'obfs-host') pluginHost = kv[1].split('#').first.trim();
             if (kv[0] == 'obfs-uri') path = _decode(kv[1]);
           }
         }
@@ -566,7 +571,12 @@ class ShareLinkWriter {
   static String _authority(String secret, ServerNode n) {
     final encoded = Uri.encodeComponent(secret);
     final host = n.address.contains(':') ? '[${n.address}]' : n.address;
-    return encoded.isEmpty ? host : '$encoded@$host:$n.port';
+    // `${n.port}`, not `$n.port`: in a Dart string `$n` grabs only the identifier,
+    // so `$n.port` interpolated the node's *toString()* and appended the literal
+    // ".port". Every exported vless/trojan/socks link came out as
+    // `...@1.2.3.4:ServerNode(Finland, 1.2.3.4:2053, vless).port` — unparseable by
+    // any client, including this one. The round-trip test caught it.
+    return encoded.isEmpty ? host : '$encoded@$host:${n.port}';
   }
 
   static String _remark(ServerNode n, bool include) {

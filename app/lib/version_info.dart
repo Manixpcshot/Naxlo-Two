@@ -18,6 +18,8 @@ const String kRepoUrl = 'https://github.com/Manixpcshot/Naxlo-Two';
 bool get isDebugBuild => kDebugMode;
 
 String get versionLabel {
-  final suffix = kAppChannel == 'stable' ? '' : ' ($kAppChannel)';
+  // const, not final: `kAppChannel` comes from `String.fromEnvironment`, so the
+  // channel is known at compile time and so is this label.
+  const suffix = kAppChannel == 'stable' ? '' : ' ($kAppChannel)';
   return '$kAppVersion$suffix';
 }

@@ -109,7 +109,13 @@ class Ranker {
 
     // ---- reliability ------------------------------------------------------
     double reliability;
-    if (cfg.mode == RankingMode.advanced) {
+    if (!m.hasSamples) {
+      // Absence of evidence is a middle score, in every component and every mode.
+      // The lower bound is a pessimistic read of *data you have*; using it for "no
+      // data" permanently buries a freshly imported node below a flaky one, which
+      // is the exact failure mode an adaptive ranker must not have.
+      reliability = _unknownComponent;
+    } else if (cfg.mode == RankingMode.advanced) {
       reliability = sampler.sampleReliability(okWeight: m.okWeight, failWeight: m.failWeight);
       // Blend the draw with the conservative bound: pure sampling is too jumpy
       // for a security tool where flapping is worse than a slower node.

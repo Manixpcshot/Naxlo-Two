@@ -82,7 +82,12 @@ class ThompsonSampler {
     final sd = math.max(0.0, sdMs);
     if (sd <= 0.5) return math.max(floorMs, meanMs);
     final sigma = math.sqrt(math.log(1.0 + (sd / meanMs) * (sd / meanMs)));
-    final mu = math.log(meanMs) - sigma * sigma / 2.0;
+    // Median-anchored on purpose. Centring the log at log(mean) - σ²/2 would make
+    // the draw *unbiased* (E[draw] == mean), i.e. variance would be free — and a
+    // ranker where risk is free keeps picking the node that spikes every third
+    // minute. With the median at the EWMA, E[draw] = mean · exp(σ²/2) > mean: a
+    // jittery node is scored as if it were slower than it usually is, which is the
+    // "what might it do" the caller asks for.
     final draw = math.exp(mu + sigma * normal());
     return draw.clamp(floorMs, 60000.0).toDouble();
   }
