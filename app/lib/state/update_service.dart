@@ -10,8 +10,10 @@ import 'package:naxlo_core/naxlo_core.dart';
 /// server" is genuinely dangerous:
 ///   * the manifest is fetched over HTTPS and, for the GitHub-hosted default,
 ///     pinned to raw.githubusercontent.com;
-///   * a download is only started when the manifest carries a `sha256`, which
-///     is verified before anything is executed;
+///   * nothing is installed unless the manifest carries a `sha256` and it matches:
+///     `verifySha256` returns false for an empty digest, so a manifest that ships
+///     without digests (the current default — see the generated `release` file) can
+///     announce a version but never hand over a binary;
 ///   * an unsigned/unknown-hash artifact is reported, never installed.
 /// A supply-chain win via a stolen token is still possible upstream, which is
 /// why the UI shows the hash and the exact URL instead of a bare "updated ✓".
