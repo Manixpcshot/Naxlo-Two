@@ -40,6 +40,7 @@ want_os=""
 want_arch=""
 want_engine="both"
 write_lock=0
+require_pin=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --sha256) pinned_sha="$2"; shift 2 ;;
     --dest) dest="$2"; shift 2 ;;
     --write-lock) write_lock=1; shift ;;
+    --require-pin) require_pin=1; shift ;;
     -h|--help) sed -n '2,33p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "fetch_engine: unknown argument '$1'" >&2; exit 2 ;;
   esac
@@ -166,9 +168,35 @@ fetch_xray() {
     echo "  HTTP $(curl -o /dev/null -sw '%{http_code}' -I "$base/$asset" || echo '?') from that URL" >&2
     return 1
   fi
-  # The .dgst is best-effort to *fetch* (some mirrors drop it) but mandatory to
-  # satisfy, unless a pin covers it.
-  curl -fsSL --retry 2 -o "$tmp/$asset.dgst" "$base/$asset.dgst" 2>/dev/null || true
+  # The .dgst is best-effort to *fetch* (some mirrors drop it) but must be
+  # satisfied unless a pin covers it. Errors are reported, never swallowed: a
+  # `2>/dev/null || true` here turned a fixable download problem into
+  # "no verifiable digest" with nothing to act on.
+  local dgst_code
+  dgst_code="$(curl -fsSL --retry 2 -o "$tmp/$asset.dgst" -w '%{http_code}' "$base/$asset.dgst" 2>"$tmp/dgst.err" || true)"
+  if [[ ! -s "$tmp/$asset.dgst" ]]; then
+    rm -f "$tmp/$asset.dgst"
+    echo "fetch_engine: .dgst unavailable for $asset (http=${dgst_code:-?} $(head -1 "$tmp/dgst.err" 2>/dev/null || true))" >&2
+    # Second path: the release-asset endpoint streams the same bytes through
+    # api.github.com, which survives CDN/proxy quirks that kill the redirect to
+    # the asset bucket. Needs the asset id, which the release listing already has.
+    local -a gh_auth=()
+    if [[ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]]; then
+      gh_auth=(-H "Authorization: Bearer ${GH_TOKEN:-${GITHUB_TOKEN:-}}")
+    fi
+    local asset_id
+    asset_id="$(curl -fsSL --retry 2 ${gh_auth[@]+"${gh_auth[@]}"} -H 'Accept: application/vnd.github+json' \
+        "https://api.github.com/repos/XTLS/Xray-core/releases/tags/$tag" 2>/dev/null \
+        | jq -r --arg n "$asset.dgst" '.assets[]? | select(.name == $n) | .id' 2>/dev/null | head -1 || true)"
+    if [[ -n "$asset_id" && "$asset_id" != "null" ]]; then
+      if curl -fsSL --retry 2 ${gh_auth[@]+"${gh_auth[@]}"} -H "Accept: application/octet-stream" \
+          -o "$tmp/$asset.dgst" "https://api.github.com/repos/XTLS/Xray-core/releases/assets/$asset_id"; then
+        echo "fetch_engine: recovered the digest via the api.github.com asset endpoint" >&2
+      else
+        rm -f "$tmp/$asset.dgst"
+      fi
+    fi
+  fi
 
   local actual; actual="$(sha256_of "$tmp/$asset")"
   local expected; expected="$(lock_sha xray "$key")"
@@ -210,9 +238,18 @@ fetch_xray() {
     0) ;;
     1) echo "fetch_engine: refusing to install an Xray archive whose digest does not match" >&2; return 1 ;;
     *)
-      # A hard failure here, deliberately: Xray *always* publishes a digest, so a
-      # missing one means the asset listing changed under us and we are guessing.
-      echo "fetch_engine: no verifiable digest for $asset (.dgst missing?)" >&2
+      # Nothing to check against — upstream's digest listing changed, or the
+      # download of it failed. Two policies, because the two callers differ:
+      # a developer/CI build should still work (loudly), a release must not
+      # ship an engine we could not tie to what upstream published.
+      if [[ $require_pin -eq 1 ]]; then
+        echo "fetch_engine: refusing to ship $asset with no verifiable digest" >&2
+        echo "  computed sha256 $actual" >&2
+        echo "  pin it once on a network you trust:  $0 --write-lock --engine xray --os $os --arch $arch" >&2
+        return 1
+      fi
+      echo "fetch_engine: WARNING - no verifiable digest for $asset (.dgst missing?)" >&2
+      echo "  computed sha256 $actual - not checked against anything" >&2
       echo "  computed sha256 $actual — pin it with --sha256 or commit it via --write-lock" >&2
       return 1
       ;;

@@ -3,10 +3,6 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   language:
     strict-casts: true
-  errors:
-    # A missing translation key is a bug to fix, not a reason to fail a build
-    # that otherwise compiles and runs.
-    unnecessary_underscores: ignore
 
 linter:
   rules:

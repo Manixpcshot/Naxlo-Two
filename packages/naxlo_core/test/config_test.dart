@@ -181,8 +181,9 @@ void main() {
       final node = buildNode();
       final profile = Profile(id: 'p', name: 'p', servers: <ServerNode>[node]);
       final cfg = XrayConfigBuilder(profile, node, const RuntimeSettings()).build().config;
-      final rules = (cfg['routing']! as Map<String, Object?>)['rules']! as List;
-      expect(rules.any((r) => (r as Map)['port'] == '53' || (r as Map)['outboundTag'] == 'dns-out'), isTrue);
+      final rules = ((cfg['routing']! as Map<String, Object?>)['rules']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(rules.any((r) => r['port'] == '53' || r['outboundTag'] == 'dns-out'), isTrue);
     });
 
     test('generated json is valid and compact-encodable', () {

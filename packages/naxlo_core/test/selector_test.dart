@@ -197,7 +197,7 @@ void main() {
         nowMs: now,
       );
       expect(keep.outcome, SelectOutcome.keep);
-      final next = selector.apply(keep, const SelectionState(currentServerId: 'a'), nowMs: now);
+      final next = selector.apply(const SelectionState(currentServerId: 'a'), keep, nowMs: now);
       expect(next.currentServerId, 'a');
       expect(next.betterCandidateId, 'b');
       expect(next.betterSinceMs, now);

@@ -1,5 +1,3 @@
-import '../json/json_utils.dart';
-
 /// Small, dependency-free geo data. A full GeoIP/GeoSite load is deliberately
 /// *not* bundled: the engines ship their own .dat files, and shipping
 /// CC-BY-NC-SA data in a release artifact would be a license problem. These

@@ -120,7 +120,14 @@ jobs:
         env:
           XRAY_VERSION: ${{ vars.XRAY_VERSION }}
           SINGBOX_VERSION: ${{ vars.SINGBOX_VERSION }}
-        run: bash scripts/fetch_engine.sh --engine both --os "${{ matrix.os }}" --arch "${{ matrix.arch }}"
+          # Only used to read public release metadata (a token-free API call from a
+          # shared runner IP is routinely rate-limited to a 403).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --require-pin because this is the one build whose output ships: the
+        # engine binary must be tied to something upstream published (its own
+        # digest, or packaging/engine-lock.json), not just to whatever the CDN
+        # answered with. CI and developer fetches stay permissive but warn.
+        run: bash scripts/fetch_engine.sh --require-pin --engine both --os "${{ matrix.os }}" --arch "${{ matrix.arch }}"
       - uses: actions/upload-artifact@v4
         with:
           name: engine-${{ matrix.os }}-${{ matrix.arch }}

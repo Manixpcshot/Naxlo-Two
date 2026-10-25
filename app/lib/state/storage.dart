@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:naxlo_core/naxlo_core.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Persistence boundary. The app never touches `dart:io` from a widget; it asks

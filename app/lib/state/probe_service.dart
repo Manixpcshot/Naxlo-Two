@@ -54,9 +54,12 @@ class ProbeService {
     try {
       if (handshakeTls && node.hasTls) {
         final sni = node.tls.serverName.isEmpty ? node.address : node.tls.serverName;
-        // `context.serverName` is the SNI the node will actually route on: a
-        // Reality/vhost server picks the backend from it, so a handshake without
-        // SNI would measure a different machine than the tunnel uses.
+        // The handshake is only worth its cost if it presents the same SNI the
+        // tunnel will: a Reality/vhost server picks the backend from SNI, so a
+        // probe that sent `node.address` instead would measure a different
+        // machine — and for an IP-addressed Reality node it would measure no
+        // server at all. `SecureSocket.connect` cannot override SNI (it uses the
+        // connect host), so connect plain first and upgrade with `host:`.
         final context = SecurityContext(withTrustedRoots: false);
         // Only set ALPN when the node declares it: forcing `http/1.1` on a node
         // configured without ALPN can make a fronting server pick a different
@@ -66,11 +69,15 @@ class ProbeService {
         if (node.tls.alpn.isNotEmpty) {
           context.setAlpnProtocols(node.tls.alpn, false);
         }
-        socket = await SecureSocket.connect(
+        socket = await Socket.connect(
           node.address,
           node.port,
           timeout: Duration(milliseconds: timeoutMs),
+        );
+        socket = await SecureSocket.secure(
+          socket,
           context: context,
+          host: sni,
           onBadCertificate: (_) => true, // measurement only; no payload crosses this socket
         );
       } else {

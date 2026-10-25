@@ -9,7 +9,7 @@ class NetAddr {
   /// Accepts `1.2.3.4:443`, `[::1]:443`, `example.com:8443` and bare hosts
   /// (port = 0). Returns null for garbage so callers can collect errors.
   static NetAddr? tryParse(String raw, {int defaultPort = 0}) {
-    var s = raw.trim();
+    final s = raw.trim();
     if (s.isEmpty) return null;
     if (s.startsWith('[')) {
       final close = s.indexOf(']');

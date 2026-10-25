@@ -101,10 +101,14 @@ jobs:
           if flutter analyze > analyze.log 2>&1; then
             echo "analyze clean"
           else
-            # Annotate the tail rather than grepping for "^ +error": flutter's
-            # message format has changed across SDK versions, and a guard whose
-            # output depends on that format silently reports nothing.
-            grep -E "error|warning|issue" analyze.log | head -50 | sed -E 's/^ *//; s/^/::error::/'
+            # Format-agnostic: match the diagnostic *word* anywhere on the line,
+            # because flutter and `dart analyze` disagree on separators
+            # (`warning • msg • file • code` vs `  warning - msg - file - code`),
+            # and a grep tied to one layout silently reports nothing at all.
+            { grep -E "(^|[^[:alnum:]_])(error|warning)([^[:alnum:]_]|$)" analyze.log \
+                | grep -vE "Analyzing|issues? found" | head -60
+              echo "(no error/warning lines matched - raw tail follows)"
+              tail -12 analyze.log; } | sed -E 's/^ *//; s/^/::error::/'
             { echo '### flutter analyze (app)'; echo '```'; tail -c 20000 analyze.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             tail -60 analyze.log
             exit 1

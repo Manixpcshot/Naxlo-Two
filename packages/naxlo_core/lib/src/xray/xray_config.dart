@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../config/runtime_settings.dart';
 import '../geo/geo.dart';
 import '../json/json_utils.dart';
 import '../models/dns_config.dart';
@@ -10,7 +11,6 @@ import '../models/routing.dart';
 import '../models/security.dart';
 import '../models/server_node.dart';
 import '../models/transport.dart';
-import '../config/runtime_settings.dart';
 
 /// Output of a config builder: the JSON to hand the engine, plus the notes the
 /// UI should surface (a silently dropped `flow` is a confusing bug to debug).
