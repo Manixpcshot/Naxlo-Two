@@ -161,7 +161,7 @@ class _SideNav extends StatelessWidget {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       leading: Icon(selected ? d.selectedIcon : d.icon),
                       minLeadingWidth: 0,
-                      horizontalPadding: compact ? 4 : 12,
+                      contentPadding: EdgeInsets.symmetric(horizontal: compact ? 4 : 12),
                       title: compact
                           ? null
                           : Text(

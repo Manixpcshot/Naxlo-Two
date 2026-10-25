@@ -57,8 +57,15 @@ class ProbeService {
         // `context.serverName` is the SNI the node will actually route on: a
         // Reality/vhost server picks the backend from it, so a handshake without
         // SNI would measure a different machine than the tunnel uses.
-        final context = SecurityContext(withTrustedRoots: false)
-          ..setAlpnProtocols(node.tls.alpn.isEmpty ? null : node.tls.alpn, false);
+        final context = SecurityContext(withTrustedRoots: false);
+        // Only set ALPN when the node declares it: forcing `http/1.1` on a node
+        // configured without ALPN can make a fronting server pick a different
+        // backend, and the probe would then measure a connection the tunnel never
+        // makes. (It also has to be a statement, not a cascade: the setter takes a
+        // non-nullable list, and `null` was doing nothing useful here anyway.)
+        if (node.tls.alpn.isNotEmpty) {
+          context.setAlpnProtocols(node.tls.alpn, false);
+        }
         socket = await SecureSocket.connect(
           node.address,
           node.port,

@@ -244,7 +244,7 @@ class RankedTile extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
-                  '${ranked.consecutiveFailures}× ${node.lastErrorHint}',
+                  '${ranked.consecutiveFailures}× ${metrics?.lastError ?? 'unreachable'}',
                   style: theme.textTheme.labelSmall?.copyWith(color: Palette.rose),
                 ),
               ),

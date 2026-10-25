@@ -54,6 +54,20 @@ for p in "${platforms[@]}"; do
     --org "$org" \
     --project-name "$project" \
     .
+
+  # The template also drops a counter-demo `test/widget_test.dart` that imports
+  # this package and references a `MyApp` class we do not have. Left in place it
+  # fails `flutter analyze` and `flutter test` on every clean checkout, so the
+  # generated copy goes away — but only while it is verbatim the template, so a
+  # real test file that happens to mention MyApp is never deleted.
+  if [[ -f test/widget_test.dart ]] && grep -q "MyApp" test/widget_test.dart; then
+    rm -f test/widget_test.dart
+    echo "    removed the generated placeholder test/widget_test.dart"
+  fi
+  if [[ -d integration_test ]] && grep -rq "MyApp" integration_test 2>/dev/null; then
+    rm -rf integration_test
+    echo "    removed the generated integration_test/ placeholder"
+  fi
 done
 
 # Linux desktop entry: `flutter create` gives us a generic one. The Exec/Name

@@ -4,6 +4,7 @@ import '../config/ranking_config.dart';
 import '../config/runtime_settings.dart';
 import '../json/json_utils.dart';
 import '../models/profile.dart';
+import '../models/server_node.dart';
 import '../ranking/metrics.dart';
 import '../ranking/sample_point.dart';
 import '../ranking/selection.dart';

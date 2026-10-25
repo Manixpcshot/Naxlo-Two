@@ -504,23 +504,6 @@ class ShareLinkParser {
     return RegExp(r'^[A-Za-z0-9+_/=-]+$').hasMatch(flat);
   }
 
-  /// Splits `a=1&b=2` on the first `=` of each pair, percent-decoding both
-  /// sides. `Uri.splitQueryString` is not used because its treatment of `+`
-  /// mangles base64-ish values such as `path=/x+y`.
-  static Map<String, String> _splitQuery(String query) {
-    final out = <String, String>{};
-    if (query.isEmpty) return out;
-    for (final part in query.split('&')) {
-      if (part.isEmpty) continue;
-      final eq = part.indexOf('=');
-      if (eq < 0) {
-        out[_decode(part)] = '';
-      } else {
-        out[_decode(part.substring(0, eq))] = _decode(part.substring(eq + 1));
-      }
-    }
-    return out;
-  }
 
   static Map<String, Object?>? _decodeBase64Json(String body) {
     final text = _base64DecodeLoose(body);
@@ -536,17 +519,6 @@ class ShareLinkParser {
     return null;
   }
 
-  /// Percent-decoding that leaves already-decoded text alone. Panels disagree
-  /// on whether `path` is encoded, and `Uri.decodeComponent` throws on a stray
-  /// `%`, so we degrade instead of failing the import.
-  static String _decode(String raw) {
-    if (!raw.contains('%')) return raw;
-    try {
-      return Uri.decodeComponent(raw);
-    } on FormatException {
-      return raw;
-    }
-  }
 
   /// Base64 that tolerates URL-safe alphabets and missing padding — every panel
   /// does this slightly differently and rejecting an import over `+` vs `-` is
@@ -681,5 +653,32 @@ class ShareLinkWriter {
       auth = '${Uri.encodeComponent(n.userId)}:${Uri.encodeComponent(n.password)}@';
     }
     return 'http://$auth${n.address}:${n.port}${_remark(n, include)}';
+  }
+}
+
+/// Splits `a=1&b=2` on the first `=` of each pair, percent-decoding both sides.
+/// `Uri.splitQueryString` is deliberately not used: its treatment of `+` mangles
+/// base64-ish values such as `path=/x+y`, and `+` is legal in a share link.
+Map<String, String> _splitQuery(String query) {
+  final out = <String, String>{};
+  if (query.isEmpty) return out;
+  for (final part in query.split('&')) {
+    if (part.isEmpty) continue;
+    final eq = part.indexOf('=');
+    if (eq < 0) {
+      out[_decode(part)] = '';
+    } else {
+      out[_decode(part.substring(0, eq))] = _decode(part.substring(eq + 1));
+    }
+  }
+  return out;
+}
+
+String _decode(String raw) {
+  if (!raw.contains('%')) return raw;
+  try {
+    return Uri.decodeComponent(raw);
+  } on FormatException {
+    return raw;
   }
 }

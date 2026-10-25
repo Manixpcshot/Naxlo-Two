@@ -280,7 +280,7 @@ class _PrettyJson {
   String encode(Profile p) => const JsonEncoder.withIndent('  ').convert(p.toJson());
 }
 
-class _Stat {
+class _Stat extends StatelessWidget {
   const _Stat({required this.label, required this.value});
 
   final String label;
