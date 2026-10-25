@@ -24,7 +24,7 @@
 #endif
 
 #define MyAppName "Naxlo Two"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.2.1"
 #define MyAppPublisher "Naxlo"
 #define MyAppURL "https://github.com/Manixpcshot/Naxlo-Two"
 #define MyAppExeName "naxlo_two.exe"
