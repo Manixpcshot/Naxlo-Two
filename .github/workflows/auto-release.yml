@@ -6,7 +6,9 @@ name: Auto release
 #
 #   fix: / perf: / refactor: / docs: / test: / build: / ci:   →  patch
 #   feat: / any `!` / BREAKING CHANGE:                        →  minor (or major)
-#   chore(release): … and [skip-release]                      →  no release
+#   chore(release): …                                          →  no release
+#   every commit in the range says [skip-release] / [skip ci]  →  no release
+#   (one marker alone does not veto a batch that contains a real change)
 #
 # Two guards keep this from eating itself:
 #   1. The manifest commit release.yml pushes is `chore(release):` — ignored here.
@@ -47,13 +49,35 @@ jobs:
       - name: Skip non-release commits
         id: gate
         run: |
-          msg="$(git log -1 --pretty=%B)"
-          if grep -qiE '^chore\(release\):|\[skip-release\]|\[skip ci\]' <<<"$msg"; then
+          # "Is a release owed?" has to be answered over the whole push, not from
+          # `git log -1`. Reading only the head commit is wrong in both directions on
+          # a merge: GitHub's merge subject is boilerplate ("Merge pull request #2
+          # from …"), so a `[skip-release]` marker on every commit underneath it is
+          # invisible — that is how this repo manufactured a v0.2.1 patch release out
+          # of a CI-only change — while a single marked commit in a batch that also
+          # contains a `feat:` would veto a release the users do want.
+          last_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [[ -n "$last_tag" ]]; then range="$last_tag..HEAD"; else range="HEAD"; fi
+          head_subject="$(git log -1 --pretty=%s)"
+          if grep -qiE '^chore\(release\):' <<<"$head_subject"; then
+            # release.yml pushes this after publishing; it must never re-trigger.
             echo "skip=true" >>"$GITHUB_OUTPUT"
-            echo "Head commit is a release bookkeeping commit or opted out — nothing to do."
+            echo "head is release bookkeeping ($head_subject) — nothing to do."
+            exit 0
+          fi
+          subjects="$(git log --no-merges --pretty=%s "$range" 2>/dev/null || true)"
+          if [[ -z "$subjects" ]]; then
+            subjects="$head_subject"
+          fi
+          total=$(grep -c . <<<"$subjects")
+          opted=$(grep -icE '\[skip-release\]|\[skip ci\]' <<<"$subjects" || true)
+          if [[ "$opted" -ge "$total" ]]; then
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+            echo "every commit in the range opted out of a release ($opted/$total) — nothing to do."
             exit 0
           fi
           echo "skip=false" >>"$GITHUB_OUTPUT"
+          echo "a release is owed for $((total - opted)) of $total commits in $range"
 
       - name: Compute version + notes
         id: calc
