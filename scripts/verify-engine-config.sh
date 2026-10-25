@@ -21,6 +21,10 @@ singbox_bin="${SINGBOX_BIN:-}"
 
 failures=0
 checked=0
+# Reported separately on purpose: if a whole engine family is skipped because its
+# binary did not download, "48 configs accepted" would be a lie about coverage.
+accepted=0
+skipped=0
 
 # --- 1. generate -------------------------------------------------------------
 command -v dart >/dev/null 2>&1 || {
@@ -94,8 +98,10 @@ verify() { # pattern  binary  args...
     checked=$((checked + 1))
     if [[ -z "$bin" ]]; then
       echo "   SKIP $(basename "$f") (no binary for this family)"
+      skipped=$((skipped + 1))
       continue
     fi
+    accepted=$((accepted + 1))
     local err
     if err="$("$bin" "$@" "$f" 2>&1 >/dev/null)"; then
       echo "   PASS $(basename "$f")"
@@ -119,4 +125,7 @@ if [[ $failures -gt 0 ]]; then
   echo "Fix the builder in packages/naxlo_core/lib/src/{xray,singbox}/ — the file is the diff." >&2
   exit 1
 fi
-echo "verify-engine-config: $checked config(s) accepted."
+echo "verify-engine-config: $accepted accepted, $skipped skipped for want of a binary, $failures rejected."
+if [[ $skipped -gt 0 ]]; then
+  echo "  (partial coverage: the skipped families were never read by an engine)" >&2
+fi

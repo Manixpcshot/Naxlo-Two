@@ -57,7 +57,7 @@ jobs:
           if dart analyze > analyze.log 2>&1; then
             echo "analyze clean"
           else
-            sed -E 's/^/::error::/' analyze.log | head -40
+            bash ../../scripts/annotate_log.sh analyze.log --max 5
             { echo '### dart analyze (naxlo_core)'; echo '```'; tail -c 20000 analyze.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
@@ -67,7 +67,7 @@ jobs:
           if dart test -r expanded --concurrency 4 > test.log 2>&1; then
             tail -5 test.log
           else
-            tail -40 test.log | sed -E 's/^/::error::/'
+            bash ../../scripts/annotate_log.sh test.log --max 6
             { echo '### dart test (naxlo_core)'; echo '```'; tail -c 20000 test.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             tail -40 test.log
             exit 1
@@ -101,14 +101,8 @@ jobs:
           if flutter analyze > analyze.log 2>&1; then
             echo "analyze clean"
           else
-            # Format-agnostic: match the diagnostic *word* anywhere on the line,
-            # because flutter and `dart analyze` disagree on separators
-            # (`warning • msg • file • code` vs `  warning - msg - file - code`),
-            # and a grep tied to one layout silently reports nothing at all.
-            { grep -E "(^|[^[:alnum:]_])(error|warning)([^[:alnum:]_]|$)" analyze.log \
-                | grep -vE "Analyzing|issues? found" | head -60
-              echo "(no error/warning lines matched - raw tail follows)"
-              tail -12 analyze.log; } | sed -E 's/^ *//; s/^/::error::/'
+            bash ../scripts/annotate_log.sh analyze.log --max 5 \
+              --grep '(^|[^[:alnum:]_])(error|warning)([^[:alnum:]_]|$)'
             { echo '### flutter analyze (app)'; echo '```'; tail -c 20000 analyze.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             tail -60 analyze.log
             exit 1
@@ -119,7 +113,7 @@ jobs:
           if flutter test -r expanded > test.log 2>&1; then
             tail -5 test.log
           else
-            tail -50 test.log | sed -E 's/^/::error::/'
+            bash ../scripts/annotate_log.sh test.log --max 6
             { echo '### flutter test (app)'; echo '```'; tail -c 20000 test.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             tail -50 test.log
             exit 1
@@ -158,11 +152,23 @@ jobs:
           flutter-version: ${{ env.flutter-version }}
           cache: true
 
-      - name: Verify generated configs against real engines
-        continue-on-error: true
+      # Two steps, both blocking. While they were one step with
+      # continue-on-error, a failed engine *download* aborted the step before the
+      # verification ever ran, and the job still went green: the config check that
+      # "passed" in that round checked nothing. A skipped verification has to look
+      # different from a passing one, which is also why the script itself now
+      # reports accepted/skipped/rejected separately.
+      - name: Fetch engines for config verification
         run: |
-          bash scripts/fetch_engine.sh --engine both --os linux --arch amd64
-          bash scripts/verify-engine-config.sh
+          if ! bash scripts/fetch_engine.sh --engine both --os linux --arch amd64 > fetch.log 2>&1; then
+            bash scripts/annotate_log.sh fetch.log --max 2 --level failure
+            tail -20 fetch.log
+            exit 1
+          fi
+          tail -8 fetch.log
+
+      - name: Verify generated configs against real engines
+        run: bash scripts/verify-engine-config.sh
 
   # The privacy promise in docs/PRIVACY.md is one careless import away from being
   # false, so CI checks it. Note what this does *not* do: it must not grep for the
@@ -281,13 +287,22 @@ jobs:
         continue-on-error: true
         run: |
           if ! bash ../scripts/fetch_engine.sh --engine xray > fetch.log 2>&1; then
-            tail -25 fetch.log | sed -E 's/^/::warning::/'
+            bash ../scripts/annotate_log.sh fetch.log --level warning --max 2
             exit 1
           fi
           tail -12 fetch.log
 
       - name: Build
-        run: ${{ matrix.build }}
+        run: |
+          # `flutter build` on a fresh scaffold fails for boring reasons (missing
+          # plugin registrant, no linux/ dir yet), and a bare stack of SDK output in
+          # a log nobody opens hides it. Same annotation path as the tests.
+          if ! (set -e; ${{ matrix.build }}) > build.log 2>&1; then
+            bash ../scripts/annotate_log.sh build.log --max 4
+            tail -30 build.log
+            exit 1
+          fi
+          tail -6 build.log
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

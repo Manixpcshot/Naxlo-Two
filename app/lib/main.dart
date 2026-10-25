@@ -6,6 +6,7 @@ import 'package:naxlo_core/naxlo_core.dart';
 import 'app.dart';
 import 'state/app_state.dart';
 import 'state/system_proxy.dart';
+import 'version_info.dart';
 
 /// Entry point.
 ///
