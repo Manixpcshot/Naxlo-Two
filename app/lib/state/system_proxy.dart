@@ -36,7 +36,11 @@ class SystemProxyPlan {
     bool proxyHttps = true,
     bool proxyPac = false,
   }) {
-    final bypassList = bypass.join(',');
+    // WinINET's ProxyOverride is a `;`-separated string. Joining with commas
+    // produced `localhost,10.0.0.0/8`, which Windows reads as ONE hostname and so
+    // nothing is bypassed — the classic "localhost stopped working with the tunnel
+    // on" report, and the reason the default list here matters.
+    final bypassList = bypass.join(';');
     switch (platform) {
       case PlatformIdentifier.windows:
         // Two registries of "the proxy": winhttp (services, no-UI processes) and
@@ -70,7 +74,17 @@ class SystemProxyPlan {
           ),
           ProxyCommand(
             executable: 'netsh',
-            args: <String>['winhttp', 'set', 'proxy', '($host=$port)', '<-loopback'],
+            // Positional form: proxy-server, then bypass-list. `(host=port)` — what
+            // this used to emit — means "for *source* hosts matching host", not
+            // "use this proxy", so winhttp kept connecting directly and only
+            // browsers followed the tunnel.
+            args: <String>[
+              'winhttp',
+              'set',
+              'proxy',
+              <String>['http=$host:$port', if (proxyHttps) 'https=$host:$port'].join(';'),
+              '<-loopback>',
+            ],
             requiresAdmin: true,
             note: 'winhttp needs elevation; skipped silently without it',
           ),

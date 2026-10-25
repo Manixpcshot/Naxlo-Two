@@ -243,28 +243,32 @@ class SingBoxConfigBuilder {
 
   Map<String, Object?> _dns(List<String> warnings) {
     final d = profile.dns;
+    // sing-box has no `dns.servers[].type: "system"`. An empty `servers` list is how
+    // you ask it to use the OS resolver; inventing a tag and pointing `final` at it
+    // made `sing-box check` reject every generated config ("unknown transport type:
+    // system"), which is the difference between a config and a broken tunnel.
     if (d.strategy == DnsStrategy.systemOnly) {
-      return <String, Object?>{
-        'servers': <Object?>[
-          <String, Object?>{'tag': 'local', 'type': 'system'},
-        ],
-        'final': 'local',
-      };
+      return <String, Object?>{'servers': <Object?>[], 'disable_cache': false};
     }
-    final servers = <Map<String, Object?>>[];
+    final servers = <Map<String, Object?>?>[];
     for (final s in d.servers) {
       servers.add(_dnsServer(s, 'remote', 'proxy', warnings));
     }
     for (final s in d.directServers) {
       servers.add(_dnsServer(s, 'local', 'direct', warnings));
     }
+    final real = servers.whereType<Map<String, Object?>>().toList(growable: false);
+    final tags = <String>{for (final e in real) e['tag'] as String};
     final rules = <Map<String, Object?>>[
-      <String, Object?>{
-        'action': 'route',
-        'server_tag': 'local',
-        'protocol': <String>['dns'],
-        'outbound': <String>[],
-      },
+      // A rule naming a server tag that no longer exists is a hard decode error, so
+      // the routing rules follow the servers instead of assuming both groups are there.
+      if (tags.contains('local'))
+        <String, Object?>{
+          'action': 'route',
+          'server_tag': 'local',
+          'protocol': <String>['dns'],
+          'outbound': <String>[],
+        },
     ];
     if (d.strategy == DnsStrategy.localThenTunnel && d.strategyDomain.isNotEmpty) {
       rules.insert(0, <String, Object?>{
@@ -276,18 +280,22 @@ class SingBoxConfigBuilder {
     if (d.leakProtect) {
       warnings.add('DNS is routed through the tunnel; local resolution is used only for bypassed names.');
     }
+    final preferred = d.strategy == DnsStrategy.localThenTunnel ? 'local' : 'remote';
     return <String, Object?>{
-      'servers': servers,
+      'servers': real,
       'rules': rules,
-      'final': d.strategy == DnsStrategy.localThenTunnel ? 'local' : 'remote',
+      if (tags.contains(preferred)) 'final': preferred,
       'mode': d.strategy == DnsStrategy.tunnelOnly ? 'black_hole' : 'rule',
       'disable_cache': false,
     };
   }
 
-  Map<String, Object?> _dnsServer(DnsServer s, String tag, String detour, List<String> warnings) {
+  /// `null` means "no server to emit for this entry"; the caller filters them out.
+  Map<String, Object?>? _dnsServer(DnsServer s, String tag, String detour, List<String> warnings) {
     if (s.address == 'system' || s.address.startsWith('localhost')) {
-      return <String, Object?>{'tag': tag, 'type': 'system'};
+      warnings.add('sing-box has no system-resolver DNS server entry; the group "$tag" was '
+          'dropped and the OS resolver is used when no servers remain.');
+      return null;
     }
     if (s.address.startsWith('https://')) {
       return pruneNulls(<String, Object?>{

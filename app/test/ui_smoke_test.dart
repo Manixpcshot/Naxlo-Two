@@ -38,6 +38,12 @@ vless://22222222-2222-2222-2222-222222222222@slow.example.com:8443?security=real
     await app.importLinks(twoLinks);
     await tester.pumpWidget(NaxloApp(state: app));
     await tester.pumpAndSettle();
+    // The import armed the 900ms debounced autosave. A test that ends with a live
+    // Timer fails ("A Timer is still pending"), and pumpAndSettle stops as soon as
+    // there are no scheduled frames — which is immediately here. One long pump
+    // lets the write happen, which is also what the app does in real life.
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
     addTearDown(app.dispose);
     return app;
   }

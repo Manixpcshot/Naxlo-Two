@@ -88,9 +88,9 @@ EOF
 fi
 
 # --- 3. ask each engine about its own files ---------------------------------
-verify() { # pattern  binary  args...
-  local pattern="$1" bin="$2"
-  shift 2
+verify() { # pattern  binary  mode(check|run)  args...
+  local pattern="$1" bin="$2" mode="$3"
+  shift 3
   local n=0
   for f in "$out"/$pattern; do
     [[ -e "$f" ]] || continue
@@ -102,8 +102,30 @@ verify() { # pattern  binary  args...
       continue
     fi
     accepted=$((accepted + 1))
-    local err
-    if err="$("$bin" "$@" "$f" 2>&1 >/dev/null)"; then
+    local err status
+    if [[ "$mode" == run ]]; then
+      # Xray's config-validation flag has moved more than once (`test` subcommand gone,
+      # `-test` not in every build), so ask the question directly instead: does it
+      # start? A config that decodes and binds its inbounds is still running when the
+      # timeout kills it, i.e. exit 124 means accepted. Anything that exits by itself
+      # printed a reason. Note the capture keeps stdout too: Xray writes its usage and
+      # decode errors to *stdout*, so the previous `>/dev/null` threw the diagnostic
+      # away and every failure looked like a blank line.
+      if err="$(timeout 8s "$bin" "$@" "$f" 2>&1)"; then
+        status=0
+      else
+        status=$?
+      fi
+      if [[ "$status" -eq 124 || "$status" -eq 0 ]]; then
+        echo "   PASS $(basename "$f") (started; config accepted)"
+      else
+        echo "   FAIL $(basename "$f") (exit $status)"
+        echo "${err:-<no output>}" | sed 's/^/          /' | head -12
+        failures=$((failures + 1))
+      fi
+      continue
+    fi
+    if err="$("$bin" "$@" "$f" 2>&1)"; then
       echo "   PASS $(basename "$f")"
     else
       echo "   FAIL $(basename "$f")"
@@ -114,11 +136,9 @@ verify() { # pattern  binary  args...
   return 0
 }
 
-echo "==> xray test  ${xray_bin:-<not found>}  (v$("$xray_bin" version 2>/dev/null | head -1 | tr -d '\n' || echo '?'))"
-# `xray run -test -config F`: modern Xray has no `test` subcommand, so every config
-# was marked rejected with "xray test: unknown command". `-test` validates and exits
-# without binding a single port.
-verify 'xray-*.json' "$xray_bin" run -test -config
+echo "==> xray run  ${xray_bin:-<not found>}  (v$("$xray_bin" version 2>/dev/null | head -1 | tr -d '\n' || echo '?'))"
+# `run` mode: start it under a timeout and require it to survive (see verify()).
+verify 'xray-*.json' "$xray_bin" run run -config
 echo "==> sing-box check  ${singbox_bin:-<not found>}  ($("$singbox_bin" version 2>/dev/null | head -1 || echo '?'))"
 verify 'singbox-*.json' "$singbox_bin" check -c
 

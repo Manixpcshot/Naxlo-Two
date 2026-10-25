@@ -16,7 +16,9 @@ void main() {
         port: 10808,
       );
       final reg = cmds.where((ProxyCommand c) => c.executable == 'reg').toList();
-      expect(reg, hasLength(2), reason: 'ProxyEnable and ProxyServer');
+      // Three values, not two: without ProxyOverride every localhost request goes
+      // through the tunnel, so the bypass write is part of enabling, not optional.
+      expect(reg, hasLength(3), reason: 'ProxyEnable, ProxyServer and ProxyOverride');
       expect(reg.first.args, containsAll(<String>['/v', 'ProxyEnable']));
       expect(reg[1].args, containsAll(<String>['/v', 'ProxyServer']));
       expect(reg[1].args.join(' '), contains('127.0.0.1:10808'));
