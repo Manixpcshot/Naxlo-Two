@@ -54,9 +54,11 @@ jobs:
       # API, and also copies it into the job summary.
       - name: Analyze
         run: |
-          # Same policy as the app job: lints are a bar, not a gate; errors and
-          # warnings still fail the build.
-          if dart analyze --no-fatal-infos > analyze.log 2>&1; then
+          # No flag here: `dart analyze` has no --no-fatal-infos (only
+          # --fatal-infos, off by default), so infos are already non-fatal and
+          # warnings/errors still gate. Passing a non-existent flag kills the step
+          # before it analyses anything.
+          if dart analyze > analyze.log 2>&1; then
             echo "analyze clean"
           else
             bash ../../scripts/annotate_log.sh analyze.log --max 5

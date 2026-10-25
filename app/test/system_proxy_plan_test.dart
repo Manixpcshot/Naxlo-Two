@@ -90,7 +90,11 @@ void main() {
       final cmds = plan.disable(platform: PlatformIdentifier.windows);
       final reg = cmds.firstWhere((ProxyCommand c) => c.executable == 'reg');
       expect(reg.args.join(' '), contains('ProxyEnable'));
-      expect(reg.args.last, '0', reason: 'must be the "off" value, not "1"');
+      // The value follows `/d`; `/f` is the last argument (that is how reg.exe
+      // wants it), so asserting on `args.last` tested the force flag, not the off.
+      final at = reg.args.indexOf('/d');
+      expect(at, greaterThanOrEqualTo(0), reason: 'reg add must pass the value after /d');
+      expect(reg.args[at + 1], '0', reason: 'must be the "off" value, not "1"');
       expect(cmds.any((ProxyCommand c) => c.args.contains('reset')), isTrue);
     });
 

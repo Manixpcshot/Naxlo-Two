@@ -105,6 +105,10 @@ class AppState extends ChangeNotifier {
   TunnelStatus status = TunnelStatus.disconnected;
   String statusDetail = '';
   List<RankedServer> ranked = const <RankedServer>[];
+
+  /// [ranked] with the incumbent's stickiness folded in. Only the selector reads
+  /// this: see [_recomputeRanking] for why the two must not be one list.
+  List<RankedServer> _rankedWithBias = const <RankedServer>[];
   UpdateDecision? updateAvailable;
   int _rev = 0;
   bool _disposed = false;
@@ -162,6 +166,13 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    // Synchronously, and before `shutdown()` gets its first chance to yield: a
+    // debounced autosave or a ticker still armed when the object dies is a leak in
+    // a running app and a "Pending timers" failure in a widget test. `shutdown` is
+    // async for the engine/proxy cleanup; these three cannot wait for it.
+    _saver.cancelPending();
+    _ticker?.cancel();
+    _loop?.stop();
     unawaited(shutdown());
     super.dispose();
   }
@@ -188,12 +199,21 @@ class AppState extends ChangeNotifier {
     final p = profile;
     if (p == null) {
       ranked = const <RankedServer>[];
+      _rankedWithBias = const <RankedServer>[];
       return;
     }
-    ranked = _ranker.rank(
+    // Two lists, because they answer two questions. The UI answer is "which
+    // server measures better"; the switch answer is "is anything better *enough*
+    // to leave what we have". Folding the stickiness weight (0.4 of a 4.0 total,
+    // i.e. +0.10 of score) into the shared list made a connected-but-unmeasured
+    // node outrank a measured 30ms one in the list the user reads — hysteresis is
+    // not a measurement, and it is also the selector's own job to hold off.
+    final now = _nowMs();
+    ranked = _ranker.rank(servers: p.servers, metrics: bundle.metricsByServer, nowMs: now);
+    _rankedWithBias = _ranker.rank(
       servers: p.servers,
       metrics: bundle.metricsByServer,
-      nowMs: _nowMs(),
+      nowMs: now,
       currentServerId: _selection.currentServerId,
     );
   }
@@ -218,7 +238,8 @@ class AppState extends ChangeNotifier {
     }
     bundle = bundle.copyWith(metricsByServer: updated, recentSamplesByServer: samples);
 
-    ranked = _ranker.rank(
+    ranked = _ranker.rank(servers: p.servers, metrics: updated, nowMs: now);
+    _rankedWithBias = _ranker.rank(
       servers: p.servers,
       metrics: updated,
       nowMs: now,
@@ -226,7 +247,7 @@ class AppState extends ChangeNotifier {
     );
 
     final decision = _selector.decide(
-      ranked: ranked,
+      ranked: _rankedWithBias,
       state: _selection,
       nowMs: now,
       allowSwitch: allowSwitch && p.autoSelect,
@@ -348,10 +369,11 @@ class AppState extends ChangeNotifier {
       return manual;
     }
     await _recomputeRanking();
-    final decision = _selector.decide(ranked: ranked, state: _selection, nowMs: _nowMs());
+    final forSwitch = _rankedWithBias.isEmpty ? ranked : _rankedWithBias;
+    final decision = _selector.decide(ranked: forSwitch, state: _selection, nowMs: _nowMs());
     var id = decision.serverId;
     if (id.isEmpty) {
-      final candidates = _ranker.candidates(ranked);
+      final candidates = _ranker.candidates(forSwitch);
       id = candidates.isEmpty ? '' : candidates.first.serverId;
     }
     if (id.isEmpty) return null;

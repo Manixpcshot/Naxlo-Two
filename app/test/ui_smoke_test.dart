@@ -62,18 +62,18 @@ vless://22222222-2222-2222-2222-222222222222@slow.example.com:8443?security=real
 
   testWidgets('rail switches to every page', (WidgetTester tester) async {
     await pumpApp(tester);
-    await tester.tap(find.text('Servers').last);
+    await tester.tap(find.byKey(const ValueKey<String>('rail-nav.servers')));
     await tester.pumpAndSettle();
     expect(find.byType(ServersPage), findsOneWidget);
     // Both imported nodes are listed with their latency unknown state.
     expect(find.text('FAST'), findsWidgets);
     expect(find.text('SLOW'), findsWidgets);
 
-    await tester.tap(find.text('Settings').last);
+    await tester.tap(find.byKey(const ValueKey<String>('rail-nav.settings')));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPage), findsOneWidget);
 
-    await tester.tap(find.text('Logs').last);
+    await tester.tap(find.byKey(const ValueKey<String>('rail-nav.logs')));
     await tester.pumpAndSettle();
     expect(find.byType(LogsPage), findsOneWidget);
     expect(find.textContaining('Nothing logged yet'), findsOneWidget);
@@ -109,7 +109,7 @@ vless://22222222-2222-2222-2222-222222222222@slow.example.com:8443?security=real
     expect(app.ranked.first.serverId, fast.id);
     expect(app.rankOf(slow.id)!.latencyMs, 780);
 
-    await tester.tap(find.text('Servers').last);
+    await tester.tap(find.byKey(const ValueKey<String>('rail-nav.servers')));
     await tester.pumpAndSettle();
     // Paint order is the contract: the top-ranked node is the topmost row.
     expect(tester.getTopLeft(find.text('FAST')).dy, lessThan(tester.getTopLeft(find.text('SLOW')).dy));

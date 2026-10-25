@@ -148,6 +148,14 @@ class AutoSaver {
   bool _saving = false;
   Completer<void>? _drain;
 
+  /// Drop the armed write without performing it. Called on dispose: an app that
+  /// is going away must not write afterwards, and a live [Timer] at the end of a
+  /// widget test fails the test.
+  void cancelPending() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
   void schedule(String contents) {
     _pending = contents;
     _timer?.cancel();

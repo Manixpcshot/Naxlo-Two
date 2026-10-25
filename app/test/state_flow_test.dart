@@ -101,7 +101,11 @@ vless://22222222-2222-2222-2222-222222222222@slow.example.com:443?security=tls&s
     expect(app.selectionReason, contains('pin'));
 
     await app.unpin();
-    expect(app.activeServerId, isEmpty);
+    // Unpin means "hand control back to the ranker", not "disconnect": dropping
+    // a working tunnel because a toggle was released is the kind of behaviour
+    // that makes people leave a VPN app. The tunnel stays up on SLOW until the
+    // selector's own margin/dwell/cooldown decides otherwise.
+    expect(app.activeServerId, slow.id);
     app.dispose();
   });
 
