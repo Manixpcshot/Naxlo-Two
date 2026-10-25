@@ -116,13 +116,22 @@ vless://22222222-2222-2222-2222-222222222222@slow.example.com:443?security=tls&s
     final slow = app.profile!.servers.firstWhere((ServerNode s) => s.name == 'SLOW');
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // FAST is quick but jittery and lossy; SLOW is dull and rock solid.
+    // FAST moves 4 MiB per round on a wildly alternating latency (20/400ms); SLOW is
+    // steady at 120ms and never reports a throughput. Neither ever failed a probe, so
+    // `reliability` is identical for both by construction — the previous version of this
+    // test weighted reliability 0.9 and called it "stability-first", which is why it
+    // asserted nothing about which node should win. `stability` is about failure
+    // streaks, not about latency spread: the axis that separates these two is `jitter`.
     for (var i = 0; i < 4; i++) {
       app.ingestSamples(<ProbeOutcome>[
         ProbeOutcome(
           serverId: fast.id,
           attempts: 2,
-          sample: SamplePoint.success(atMs: now + i * 10, latencyMs: i.isEven ? 20 : 400),
+          sample: SamplePoint.success(
+            atMs: now + i * 10,
+            latencyMs: i.isEven ? 20 : 400,
+            bytes: 4 << 20,
+          ),
         ),
         ProbeOutcome(
           serverId: slow.id,
@@ -132,17 +141,33 @@ vless://22222222-2222-2222-2222-222222222222@slow.example.com:443?security=tls&s
       ]);
     }
 
-    final speedFirst = app.ranked.first.serverId;
-    await app.updateRanking(
-      app.ranking.copyWith(
-        mode: RankingMode.advanced,
-        weights: const RankingWeights(latency: 0.05, jitter: 0.05, reliability: 0.9, freshness: 0.1),
-      ),
+    const speedChasing = RankingWeights(
+      latency: 0.4,
+      throughput: 1.6,
+      jitter: 0.0,
+      stability: 0.0,
+      reliability: 0.0,
+      freshness: 0.0,
+      stickiness: 0.0,
     );
-    final stabilityFirst = app.ranked.first.serverId;
+    const steadyChasing = RankingWeights(
+      latency: 0.2,
+      throughput: 0.0,
+      jitter: 1.6,
+      stability: 0.0,
+      reliability: 0.0,
+      freshness: 0.0,
+      stickiness: 0.0,
+    );
 
-    expect(<String>[speedFirst, stabilityFirst], isNot(equals(<String>[stabilityFirst, speedFirst])));
-    expect(app.ranking.weights.reliability, closeTo(0.9, 0.001));
+    await app.updateRanking(app.ranking.copyWith(mode: RankingMode.advanced, weights: speedChasing));
+    final speedFirst = app.ranked.first.serverId;
+    await app.updateRanking(app.ranking.copyWith(mode: RankingMode.advanced, weights: steadyChasing));
+    final steadyFirst = app.ranked.first.serverId;
+
+    expect(speedFirst, equals(fast.id), reason: 'throughput-heavy prefers the fat, jittery pipe');
+    expect(steadyFirst, equals(slow.id), reason: 'jitter-heavy prefers the dull, steady one');
+    expect(app.ranking.weights.jitter, closeTo(1.6, 0.001));
     app.dispose();
   });
 

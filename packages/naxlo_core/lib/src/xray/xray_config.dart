@@ -336,7 +336,13 @@ class XrayConfigBuilder {
       <String, Object?>{
         'tag': 'direct',
         'protocol': 'freedom',
-        'settings': <String, Object?>{'domainStrategy': 'AsIs', 'redirect': <String, Object?>{}},
+        // `redirect` is a *string* in Xray's FreedomConfig (":0" or "host:port"), so
+        // an empty object placeholder made every single generated config die at
+        // startup with `cannot unmarshal object into Go struct field
+        // FreedomConfig.redirect of type string`. Omitting it is the same behaviour
+        // as the default `":0"` (connect as resolved); the engine only accepts the
+        // key with a value, and "valid until Xray parses it" is not a contract.
+        'settings': <String, Object?>{'domainStrategy': 'AsIs'},
       },
       <String, Object?>{
         'tag': 'block',
