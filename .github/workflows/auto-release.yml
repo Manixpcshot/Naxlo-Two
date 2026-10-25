@@ -119,14 +119,35 @@ jobs:
           git tag "v$VERSION"
           git push origin "HEAD:main" "v$VERSION"
 
-      - name: Record the changelog entry
+      - name: Publish the release and start the artifact build
         if: steps.calc.outputs.version != '' && steps.gate.outputs.skip == 'false' && steps.calc.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.calc.outputs.version }}
           GH_TOKEN: ${{ github.token }}
           NOTES: ${{ steps.calc.outputs.notes }}
+          # A PAT with `actions: write` and `contents: write`, if the repo has one.
+          # It exists for one reason: see the comment below.
+          DISPATCH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
         run: |
+          # Why the dispatch is explicit: GitHub does not start a workflow in
+          # response to an event created by the job's own `GITHUB_TOKEN` (that is the
+          # no-recursion rule), so the tag pushed above never fires release.yml's
+          # `on: push: tags: ["v*"]`. A tag *you* push triggers it normally. Without
+          # a PAT there is no way to chain the two workflows, and the release would
+          # silently be a changelog with no installers — which is what this repo
+          # shipped at v0.2.0, with a body promising the opposite.
+          line=""
+          if [[ -n "$DISPATCH_TOKEN" ]]; then
+            if GH_TOKEN="$DISPATCH_TOKEN" gh workflow run release.yml --ref "v$VERSION" -f "tag=v$VERSION"; then
+              line="Installers for every platform are building now: release.yml was dispatched for this tag, and its publish job uploads to this release when it finishes."
+            else
+              line="The artifact build could not be started automatically (RELEASE_DISPATCH_TOKEN was rejected). Run Actions -> Release -> Run workflow with tag=v$VERSION to build and attach the installers."
+            fi
+          else
+            echo "::warning::No RELEASE_DISPATCH_TOKEN secret: v$VERSION has no installers attached. Add a PAT with actions:write to make releases self-building, or run the Release workflow by hand for this tag."
+            line="No installers are attached to this release yet: a tag pushed with the job token cannot start another workflow. Either add a \`RELEASE_DISPATCH_TOKEN\` secret (a PAT with \`actions: write\`) so future releases build themselves, or run it now: Actions -> Release -> Run workflow -> tag = \`v$VERSION\`."
+          fi
           gh release create "v$VERSION" \
             --title "Naxlo Two $VERSION" \
-            --notes "$(printf '%s\n\nInstallers for every platform are attached by release.yml, which this tag just triggered.\n' "${NOTES:-}")" \
-            || echo "release body pre-created by publish job; continuing"
+            --notes "$(printf '%s\n\n%s\n' "${NOTES:-}" "$line")" \
+            || echo "release body already created (or release.yml's publish job got here first); continuing"
