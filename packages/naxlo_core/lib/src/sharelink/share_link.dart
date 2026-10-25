@@ -568,7 +568,12 @@ class ShareLinkWriter {
 
   static String _query(Map<String, String> params) {
     if (params.isEmpty) return '';
-    return params.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&');
+    // The '?' belongs to the query, not to the caller: without it the authority ran
+    // straight into the parameters (`…@1.2.3.4:2053encryption=none&…`), so the port
+    // failed to parse and every round-trip lost the port (and a client that parses
+    // strictly rejects the link outright). The round-trip test found it, next to the
+    // `$n.port` bug in `_authority` — two independent ways of shipping broken links.
+    return '?${params.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&')}';
   }
 
   static String _authority(String secret, ServerNode n) {

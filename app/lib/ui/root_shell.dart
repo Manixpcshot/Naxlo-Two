@@ -156,6 +156,10 @@ class _SideNav extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 2),
                     child: ListTile(
+                      // Tests and automation need a stable handle: the label is a
+                      // translated string, and half the suite runs under fa-IR where
+                      // "Servers" does not exist. Keys survive both.
+                      key: ValueKey<String>('rail-${d.labelKey}'),
                       selected: selected,
                       selectedTileColor: Theme.of(context).colorScheme.primary.withOpacity(0.14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

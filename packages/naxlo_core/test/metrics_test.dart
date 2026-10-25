@@ -70,7 +70,10 @@ void main() {
       // up in the *observed* rate (which has no prior to hide behind); the ranked
       // `reliability` stays shrunken toward 0.5 because there is still only one
       // sample either way.
-      expect(old.observedRate > 0.9, isTrue, reason: 'both weights decayed, the failure is gone');
+      // `reliability`, not `observedRate`: "forgotten" means the decay removed the
+      // failure from the estimate. The lifetime count will say "1 of 2 probes
+      // failed" forever, which is a true fact and the wrong question.
+      expect(old.reliability > 0.9, isTrue, reason: 'the failure decayed out of the estimate');
 
       final recent = ServerMetrics();
       recent.observe(SamplePoint.failure(atMs: 900000, error: 'reset'), halfLifeMs: 90000);

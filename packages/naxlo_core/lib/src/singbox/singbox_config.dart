@@ -296,7 +296,6 @@ class SingBoxConfigBuilder {
         'server': s.address.replaceFirst('https://', '').split('/').first,
         'path': '/${s.address.replaceFirst('https://', '').split('/').skip(1).join('/')}',
         'detour': detour,
-        'sniff': true,
       });
     }
     if (s.address.startsWith('quic://')) {

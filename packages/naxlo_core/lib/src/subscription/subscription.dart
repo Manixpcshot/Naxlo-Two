@@ -188,8 +188,17 @@ class SubscriptionParser {
         if (protocol == null) continue;
         final settings = asMap(ob['settings']);
         final stream = asMap(ob['streamSettings']);
-        final servers = asList(settings['servers']);
-        final firstServer = servers.isEmpty ? <String, Object?>{} : asMap(servers.first);
+        // VLESS does not use `settings.servers`: it nests `vnext[]`, with the id and
+        // flow one level deeper in `users[]`. Reading only `servers` found nothing in
+        // the most common exported panel config, so "import a JSON file" produced zero
+        // nodes and an empty profile with no error.
+        final servers = <Map<String, Object?>>[
+          for (final e in asList(settings['servers'])) asMap(e),
+          for (final e in asList(settings['vnext'])) asMap(e),
+        ];
+        final firstServer = servers.isEmpty ? <String, Object?>{} : servers.first;
+        final users = asList(firstServer['users']);
+        final user = users.isEmpty ? const <String, Object?>{} : asMap(users.first);
         final address = asString(firstServer['address'], fallback: asString(settings['address']));
         if (address.isEmpty) continue;
         return ServerNode(
@@ -198,7 +207,8 @@ class SubscriptionParser {
           address: address,
           port: asInt(firstServer['port'], fallback: asInt(settings['port'], fallback: 443)),
           protocol: protocol,
-          userId: asString(firstServer['id'], fallback: asString(settings['password'])),
+          userId: asString(user['id'],
+              fallback: asString(firstServer['id'], fallback: asString(settings['password']))),
           password: asString(settings['password']),
           alterId: asInt(firstServer['alterId']),
           tls: TlsOptions(

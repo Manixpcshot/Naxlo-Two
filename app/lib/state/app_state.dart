@@ -166,6 +166,11 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    // First, before anything can await: `shutdown()` yields on the proxy and the
+    // engine, and a callback landing in that window used to reach `_persist()` and
+    // re-arm the autosave *after* disposal — a live Timer at the end of a widget test
+    // and a write to a store that is going away in the app.
+    _disposed = true;
     // Synchronously, and before `shutdown()` gets its first chance to yield: a
     // debounced autosave or a ticker still armed when the object dies is a leak in
     // a running app and a "Pending timers" failure in a widget test. `shutdown` is
@@ -188,6 +193,7 @@ class AppState extends ChangeNotifier {
   Future<void> flush() => _saver.flush();
 
   void _persist() {
+    if (_disposed) return; // a disposed app must not arm a timer again
     _saver.schedule(bundle.copyWith(savedAtMs: _nowMs()).encode(pretty: false));
   }
 
@@ -625,7 +631,16 @@ class AppState extends ChangeNotifier {
       targetId = target.id;
     }
     final merged = SubscriptionMerger.merge(existing: target.servers, incoming: nodes);
-    await replaceProfile(target.copyWith(servers: merged.servers, updatedAt: _nowMs()));
+    // ids key everything downstream (metricsByServer, rankingExplain, selector
+    // state, the per-row pending switch), so two rows sharing one id would double
+    // count a server in the ranking and leave one row unreachable in the UI. The
+    // merger is not supposed to produce that; the guard costs one pass.
+    final seenIds = <String>{};
+    final servers = <ServerNode>[
+      for (final n in merged.servers)
+        if (seenIds.add(n.id)) n,
+    ];
+    await replaceProfile(target.copyWith(servers: servers, updatedAt: _nowMs()));
     return ImportReport(
       imported: merged.added.length,
       total: merged.servers.length,

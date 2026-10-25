@@ -371,8 +371,13 @@ class ProbeScheduler {
       return b.ageMs.compareTo(a.ageMs);
     });
     return <String>[
+      // 0.1, not 0.02 — the floor is what makes the backoff mean anything. A `down`
+      // node one interval past its last try scores 0.2 * 0.35 = 0.07, and against a
+      // 0.02 floor that is "due right now": the server that just refused three
+      // connections got probed as eagerly as one that merely aged out. 0.1 keeps the
+      // promised 4x backoff real while still letting it through at 4x (0.8 * 0.35).
       for (final p in scored.take(budget))
-        if (p.need > 0.02) p.serverId,
+        if (p.need > 0.1) p.serverId,
     ];
   }
 }

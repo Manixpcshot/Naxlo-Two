@@ -94,21 +94,24 @@ class ServerMetrics {
   int ageMs(int nowMs) => math.max(0, nowMs - lastSampleAtMs);
 
   double get reliability {
-    // Jeffreys posterior mean, not the raw rate. With the raw rate a single
-    // lucky probe reads as "100% reliable" and outranks a node that has been up
-    // for six hours; on a proxy client that one-sample flip is what makes people
-    // stop trusting the ranking. 1/1 -> 0.75, 200/200 -> 0.9975, nothing -> 0.5.
+    // The weights *already* carry a Jeffreys prior (kPriorWeight = ½ seeds both
+    // sides), so the posterior mean is a plain ratio. Adding 0.5/1.0 here on top
+    // double-counted it: one good probe scored 0.667 instead of 0.75, which landed
+    // under the 0.7 "healthy" line and badged every freshly imported node as
+    // degraded. 1/1 -> 0.75, 200/200 -> 0.9975, nothing at all -> 0.5 — a middle
+    // score for missing data, in that sense the prior and this getter agree.
     final total = okWeight + failWeight;
-    return (okWeight + 0.5) / (total + 1.0);
+    if (total <= 0) return 0.5;
+    return okWeight / total;
   }
 
-  /// What the observations literally said, prior excluded: `ok / (ok + fail)`
-  /// over the decayed window. `NaN` when there is nothing to report, because
-  /// "no data" is not a rate of zero.
+  /// Lifetime counts, undecayed: `ok / (ok + fail)` over everything ever measured.
+  /// `NaN` when nothing has been measured, because "no data" is not a rate of zero.
   ///
-  /// This is the number to *display*. `reliability` above is the number to rank
-  /// on; showing a shrunken posterior as a percentage reads as "3 of my 4 probes
-  /// failed" when it actually means "1 success, not enough evidence yet".
+  /// This is the number to *display*, next to a sample count. `reliability` is the
+  /// number to rank on: it decays, so a server that has been fine for an hour after
+  /// one bad morning reads as fine. Asking the display for the decayed value would
+  /// show "75.0%" for a perfect 3-of-4 window and confuse it with a failure.
   double get observedRate {
     final total = okCount + failCount;
     if (total <= 0) return double.nan;
@@ -116,10 +119,11 @@ class ServerMetrics {
   }
 
   double get reliabilityVariance {
-    // Beta(a, b) variance with the same Jeffreys prior, so the spread shrinks as
-    // evidence accumulates instead of being computed from a point estimate.
-    final a = okWeight + 0.5, b = failWeight + 0.5;
+    // Beta(okWeight, failWeight). The prior is in the weights, so it must not be
+    // added again here — otherwise the spread never shrinks the way §2 promises.
+    final a = okWeight, b = failWeight;
     final total = a + b;
+    if (total <= 0) return 0.25;
     return (a * b) / (total * total * (total + 1));
   }
 

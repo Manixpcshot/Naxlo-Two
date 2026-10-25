@@ -115,7 +115,10 @@ verify() { # pattern  binary  args...
 }
 
 echo "==> xray test  ${xray_bin:-<not found>}  (v$("$xray_bin" version 2>/dev/null | head -1 | tr -d '\n' || echo '?'))"
-verify 'xray-*.json' "$xray_bin" test -config
+# `xray run -test -config F`: modern Xray has no `test` subcommand, so every config
+# was marked rejected with "xray test: unknown command". `-test` validates and exits
+# without binding a single port.
+verify 'xray-*.json' "$xray_bin" run -test -config
 echo "==> sing-box check  ${singbox_bin:-<not found>}  ($("$singbox_bin" version 2>/dev/null | head -1 || echo '?'))"
 verify 'singbox-*.json' "$singbox_bin" check -c
 

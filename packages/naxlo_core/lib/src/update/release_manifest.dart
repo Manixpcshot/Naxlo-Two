@@ -264,7 +264,16 @@ class ReleaseManifest {
 
   static ReleaseManifest parse(String body) {
     if (body.trim().isEmpty) return const ReleaseManifest();
-    final decoded = jsonDecode(body);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      // A captive portal, a login page, a truncated download: all reach here as text
+      // that is not JSON. Throwing would surface as a stack trace in the update
+      // screen; an empty manifest means "no update information", which is the honest
+      // answer and is never mistaken for "you are up to date".
+      return const ReleaseManifest();
+    }
     if (decoded is! Map) return const ReleaseManifest();
     final json = <String, Object?>{for (final e in decoded.entries) e.key.toString(): e.value};
     final platforms = <String, PlatformReleases>{};
