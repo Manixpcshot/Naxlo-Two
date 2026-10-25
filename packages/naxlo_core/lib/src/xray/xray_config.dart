@@ -53,6 +53,13 @@ class GeneratedConfig {
 /// * `sniffing.routeOnly: true` is required, otherwise sniffed destinations
 ///   break routing for direct connections.
 class XrayConfigBuilder {
+  /// The tag of the outbound that carries proxied traffic. The leak-protect rule,
+  /// the `GeneratedConfig.outboundTag` handed to the engine controller and the
+  /// outbound itself all have to name the same tag; spelling it out at three places
+  /// is how one of them drifts (a "dns-out" rule once pointed at a tag that no
+  /// longer existed, and Xray refused the config).
+  static const String tunnelTag = 'proxy';
+
   const XrayConfigBuilder(this.profile, this.node, this.settings);
 
   final Profile profile;
@@ -86,7 +93,7 @@ class XrayConfigBuilder {
       engine: EngineKind.xray,
       config: pruneNulls(config),
       warnings: warnings,
-      outboundTag: 'proxy',
+      outboundTag: tunnelTag,
       accessLogPath: settings.accessLogPath,
     );
   }
@@ -228,7 +235,7 @@ class XrayConfigBuilder {
     }
 
     final outbound = <String, Object?>{
-      'tag': 'proxy',
+      'tag': tunnelTag,
       'protocol': n.protocol.wireName,
       'settings': settings,
       'streamSettings': _streamSettings(warnings),
@@ -370,7 +377,7 @@ class XrayConfigBuilder {
         'type': 'field',
         'network': 'tcp,udp',
         'port': '53',
-        'outboundTag': outboundTag,
+        'outboundTag': tunnelTag,
       });
       warnings.add('leak-protect routes application DNS through the tunnel; Xray itself '
           'still queries its configured DNS servers directly.');
@@ -408,8 +415,8 @@ class XrayConfigBuilder {
     // Xray has no `final` field on routing: a catch-all rule in last position is
     // the idiom. It has to be appended to the list, not bolted onto the map — a
     // bare map literal in an `if` inside a map literal is not a map entry.
-    final finalTag = r.preset == RoutingPreset.directFirst ? 'direct' : 'proxy';
-    if (finalTag != 'proxy') {
+    final finalTag = r.preset == RoutingPreset.directFirst ? 'direct' : tunnelTag;
+    if (finalTag != tunnelTag) {
       rules.add(<String, Object?>{'type': 'field', 'network': 'tcp,udp', 'outboundTag': finalTag});
     }
     return <String, Object?>{
