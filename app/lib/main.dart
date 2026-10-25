@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
+import 'package:naxlo_core/naxlo_core.dart';
 
 import 'app.dart';
 import 'state/app_state.dart';

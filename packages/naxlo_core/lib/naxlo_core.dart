@@ -12,7 +12,6 @@ export 'src/geo/geo.dart';
 export 'src/json/json_utils.dart';
 export 'src/models/dns_config.dart';
 export 'src/models/engine_kind.dart';
-export 'src/models/profile.dart';
 export 'src/models/proxy_protocol.dart';
 export 'src/models/routing.dart';
 export 'src/models/security.dart';

@@ -14,7 +14,10 @@ enum EngineStatus { stopped, starting, running, failed }
 class EngineStartResult {
   const EngineStartResult({required this.ok, this.message = '', this.warnings = const <String>[], this.exitCode});
 
-  static EngineStartResult ok(List<String> warnings) =>
+  /// Named `success`, not `ok`: a static member called `ok` collides with the
+  /// instance field of the same name, and inside the class the bare name then
+  /// resolves to the field — which reads as "static access to an instance member".
+  static EngineStartResult success(List<String> warnings) =>
       EngineStartResult(ok: true, warnings: warnings);
 
   factory EngineStartResult.fail(String message, {int? exitCode, List<String> warnings = const <String>[]}) =>
@@ -37,8 +40,8 @@ class EngineService {
     required this.logs,
     required this.locator,
     required this.supportDir,
-    this.traffic = TrafficTally(),
-  });
+    TrafficTally? traffic,
+  }) : traffic = traffic ?? TrafficTally();
 
   final LogBuffer logs;
   final EngineLocator locator;
@@ -132,7 +135,7 @@ class EngineService {
     _stdout = _process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(_onLine);
     _stderr = _process!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(_onLine);
 
-    final exited = _process!.exit;
+    final exited = _process!.exitCode;
     unawaited(
       exited.then((code) async {
         await _detachStreams();
@@ -176,7 +179,7 @@ class EngineService {
     status = EngineStatus.running;
     traffic.reset();
     logs.add('engine running (pid ${_process!.pid}) on ${profile.engine.cliName}', source: 'engine');
-    return EngineStartResult.ok(generated.warnings);
+    return EngineStartResult.success(generated.warnings);
   }
 
   /// Exponential backoff with a hard cap, and a *reason* kept in the log: an
@@ -217,7 +220,7 @@ class EngineService {
         engine.verifyArgs(configPath),
         workingDirectory: File(binary).parent.path,
       );
-      if (r.exitCode == 0) return EngineStartResult.ok(const <String>[]);
+      if (r.exitCode == 0) return EngineStartResult.success(const <String>[]);
       final text = ('${r.stdout}\n${r.stderr}').trim();
       final relevant = text
           .split(RegExp(r'\r?\n'))
@@ -261,7 +264,7 @@ class EngineService {
     final deadline = DateTime.now().add(const Duration(seconds: 4));
     while (DateTime.now().isBefore(deadline)) {
       try {
-        await p.exit.timeout(const Duration(milliseconds: 200));
+        await p.exitCode.timeout(const Duration(milliseconds: 200));
         break;
       } on TimeoutException {
         continue;

@@ -70,8 +70,11 @@ class DnsConfig {
 
   const DnsConfig.defaults()
       : strategy = DnsStrategy.tunnelOnly,
-        servers = <DnsServer>[DnsServer('1.1.1.1'), DnsServer('https://dns.cloudflare.com/dns-query')],
-        directServers = <DnsServer>[DnsServer('system')],
+        servers = const <DnsServer>[
+          DnsServer('1.1.1.1'),
+          DnsServer('https://dns.cloudflare.com/dns-query'),
+        ],
+        directServers = const <DnsServer>[DnsServer('system')],
         disableFallbackIfCanUseLocalDns = false,
         strategyDomain = '',
         tunMtu = 1500,
@@ -130,18 +133,17 @@ class DnsConfig {
 
   static DnsConfig fromJson(Map<String, Object?> json) {
     if (json.isEmpty) return const DnsConfig.defaults();
+    final servers = <DnsServer>[for (final raw in asList(json['servers'])) DnsServer.fromJson(asMap(raw))];
+    final direct = <DnsServer>[
+      for (final raw in asList(json['directServers'])) DnsServer.fromJson(asMap(raw)),
+    ];
     return DnsConfig(
       strategy: DnsStrategy.fromName(asString(json['strategy'])),
-      servers: <DnsServer>[
-        for (final raw in asList(json['servers'])) DnsServer.fromJson(asMap(raw)),
-      ].isEmpty
-          ? const <DnsServer>[DnsServer('1.1.1.1')]
-          : <DnsServer>[
-              for (final raw in asList(json['servers'])) DnsServer.fromJson(asMap(raw)),
-            ],
-      directServers: <DnsServer>[
-        for (final raw in asList(json['directServers'])) DnsServer.fromJson(asMap(raw)),
-      ],
+      // An empty `servers` list means "the file had none", not "resolve nothing":
+      // fall back to one working resolver rather than writing a config that
+      // resolves everything direct and leaks the names the user routed.
+      servers: servers.isEmpty ? const <DnsServer>[DnsServer('1.1.1.1')] : servers,
+      directServers: direct,
       disableFallbackIfCanUseLocalDns: asBool(json['disableFallbackIfCanUseLocalDns']),
       strategyDomain: asString(json['strategyDomain']),
       tunMtu: asInt(json['tunMtu'], fallback: 1500),

@@ -34,7 +34,10 @@ class EngineLocator {
       if (!override.endsWith(name)) out.add('$override${Platform.pathSeparator}$name');
     }
     out.add('${supportDir.path}${Platform.pathSeparator}engines${Platform.pathSeparator}$engine${Platform.pathSeparator}$name');
-    final exe = File.fromUri(Platform.resolvedExecutable).parent.path;
+    // `resolvedExecutable` is already a filesystem path; `File.fromUri` would
+// need a Uri and throws on Windows paths. The parent of the executable is
+// where a portable zip unpacks its engine next to the app.
+final exe = File(Platform.resolvedExecutable).parent.path;
     out.add('$exe${Platform.pathSeparator}$name');
     out.add('$exe${Platform.pathSeparator}data${Platform.pathSeparator}engines${Platform.pathSeparator}$engine${Platform.pathSeparator}$name');
     if (_isWindows) {

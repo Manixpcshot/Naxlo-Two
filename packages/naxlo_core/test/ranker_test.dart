@@ -234,7 +234,7 @@ void main() {
     test('presets', () {
       expect(RankingWeights.preset('speed').latency, 1.0);
       expect(RankingWeights.preset('stability').reliability, 1.0);
-      expect(RankingWeights.preset('nonsense').latency, RankingWeights.balanced.latency);
+      expect(RankingWeights.preset('nonsense').latency, RankingWeights.balancedPreset.latency);
     });
   });
 }

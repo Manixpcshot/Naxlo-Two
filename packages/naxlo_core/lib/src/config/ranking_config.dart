@@ -97,8 +97,11 @@ class RankingWeights {
   }
 
   /// UI presets.
-  static const RankingWeights balanced = RankingWeights();
-  static const RankingWeights speed = RankingWeights(
+  /// Presets are `*Preset`-named: a static called `stability` would clash
+  /// with the instance field `stability`, and inside a static method the
+  /// bare name resolves to the field (a double), not the preset.
+  static const RankingWeights balancedPreset = RankingWeights();
+  static const RankingWeights speedPreset = RankingWeights(
     latency: 1.0,
     jitter: 0.25,
     reliability: 0.5,
@@ -107,7 +110,7 @@ class RankingWeights {
     stability: 0.3,
     stickiness: 0.2,
   );
-  static const RankingWeights stability = RankingWeights(
+  static const RankingWeights stabilityPreset = RankingWeights(
     latency: 0.5,
     jitter: 0.8,
     reliability: 1.0,
@@ -120,11 +123,11 @@ class RankingWeights {
   static RankingWeights preset(String name) {
     switch (name) {
       case 'speed':
-        return speed;
+        return speedPreset;
       case 'stability':
-        return stability;
+        return stabilityPreset;
       default:
-        return balanced;
+        return balancedPreset;
     }
   }
 
@@ -137,7 +140,7 @@ class RankingWeights {
 class RankingConfig {
   const RankingConfig({
     this.mode = RankingMode.advanced,
-    this.weights = RankingWeights.balanced,
+    this.weights = RankingWeights.balancedPreset,
     this.halfLifeMs = 90000,
     this.latencyScaleMs = 220,
     this.jitterScaleMs = 35,

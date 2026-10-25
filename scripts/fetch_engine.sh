@@ -64,7 +64,11 @@ need unzip
 need tar
 
 latest_tag() { # repo
-  curl -fsSL --retry 3 "https://api.github.com/repos/$1/releases/latest" | jq -r '.tag_name // empty'
+  # || true: this runs inside a command substitution in an assignment, so a
+  # non-zero exit here would abort the whole script before the friendly
+  # "could not resolve latest tag" message could be printed.
+  curl -fsSL --retry 3 --header "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' || true
 }
 
 sha256_of() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$1" | cut -d' ' -f1; }
@@ -96,7 +100,7 @@ verify_checksum() { # asset_path checksums_path asset_name
 
 fetch_xray() {
   local version="$xray_version"
-  [[ -n "$version" ]] || version="$(latest_tag Xray-core/Xray-core)"
+  [[ -n "$version" ]] || version="$(latest_tag XTLS/Xray-core)"
   [[ -n "$version" ]] || { echo "fetch_engine: could not resolve latest Xray tag (rate limited?)" >&2; return 1; }
   local arch tag
   case "$want_arch" in
