@@ -104,19 +104,19 @@ void main() {
 
     test('stickiness rewards the node already carrying traffic', () {
       final a = withLatency(100);
-      final without = Ranker(config: simple).rank(
+      final unpinned = Ranker(config: simple).rank(
         servers: <ServerNode>[node('x')],
         metrics: <String, ServerMetrics>{'x': a},
         nowMs: 1000000,
       );
-      final with = Ranker(config: simple).rank(
+      final pinned = Ranker(config: simple).rank(
         servers: <ServerNode>[node('x')],
         metrics: <String, ServerMetrics>{'x': a},
         nowMs: 1000000,
         currentServerId: 'x',
       );
-      expect(with.first.score > without.first.score, isTrue);
-      expect(with.first.reasons.any((r) => r.contains('stickiness')), isTrue);
+      expect(pinned.first.score > unpinned.first.score, isTrue);
+      expect(pinned.first.reasons.any((r) => r.contains('stickiness')), isTrue);
     });
 
     test('advanced mode is deterministic for a fixed seed', () {

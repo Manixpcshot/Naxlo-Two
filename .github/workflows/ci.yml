@@ -67,7 +67,7 @@ jobs:
           if dart test -r expanded --concurrency 4 > test.log 2>&1; then
             tail -5 test.log
           else
-            grep -E "^[0-9]{2}:[0-9]{2} .*(\[E\]|Expected|Actual|failed)" test.log | head -40 | sed -E 's/^/::error::/'
+            tail -40 test.log | sed -E 's/^/::error::/'
             { echo '### dart test (naxlo_core)'; echo '```'; tail -c 20000 test.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             tail -40 test.log
             exit 1
@@ -101,7 +101,10 @@ jobs:
           if flutter analyze > analyze.log 2>&1; then
             echo "analyze clean"
           else
-            grep -E "^ +(error|warning)" analyze.log | head -60 | sed -E 's/^ +/::error::/'
+            # Annotate the tail rather than grepping for "^ +error": flutter's
+            # message format has changed across SDK versions, and a guard whose
+            # output depends on that format silently reports nothing.
+            grep -E "error|warning|issue" analyze.log | head -50 | sed -E 's/^ *//; s/^/::error::/'
             { echo '### flutter analyze (app)'; echo '```'; tail -c 20000 analyze.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             tail -60 analyze.log
             exit 1
@@ -112,7 +115,7 @@ jobs:
           if flutter test -r expanded > test.log 2>&1; then
             tail -5 test.log
           else
-            grep -E "(\[E\]|Expected:|Actual:|which:|The following)" test.log | head -50 | sed -E 's/^ +/::error::/'
+            tail -50 test.log | sed -E 's/^/::error::/'
             { echo '### flutter test (app)'; echo '```'; tail -c 20000 test.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             tail -50 test.log
             exit 1
@@ -262,7 +265,22 @@ jobs:
           esac
 
       - name: Fetch engine binaries
-        run: bash ../scripts/fetch_engine.sh --engine xray
+        # Surface the reason in a check annotation: without it this step is a red
+        # dot and a bare "exit code 1" in the log.
+        #
+        # Non-blocking on purpose. This job's contract is "the platform toolchain
+        # can still build a bundle"; the engine binary is not an input to
+        # `flutter build linux`/`apk`, so an unreachable release asset or a digest
+        # we cannot yet pin must not hide a real build regression. The release
+        # pipeline fetches the same binaries and *does* fail on them, because that
+        # is the only build whose output ships.
+        continue-on-error: true
+        run: |
+          if ! bash ../scripts/fetch_engine.sh --engine xray > fetch.log 2>&1; then
+            tail -25 fetch.log | sed -E 's/^/::warning::/'
+            exit 1
+          fi
+          tail -12 fetch.log
 
       - name: Build
         run: ${{ matrix.build }}

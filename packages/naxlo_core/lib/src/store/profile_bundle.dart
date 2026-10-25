@@ -221,6 +221,7 @@ class ProfileBundle {
         bundle: fromJson(<String, Object?>{
           for (final e in decoded.entries) e.key.toString(): e.value,
         }),
+        error: '',
       );
     } on FormatException catch (e) {
       return BundleLoadResult(bundle: const ProfileBundle(), error: 'malformed JSON: ${e.message}');

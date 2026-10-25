@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../json/json_utils.dart';
 import 'semver.dart';
 

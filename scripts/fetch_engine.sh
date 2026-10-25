@@ -161,20 +161,49 @@ fetch_xray() {
   local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
 
   echo "xray v${tag} (${want_os}/${want_arch})"
-  curl -fsSL --retry 3 -o "$tmp/$asset" "$base/$asset"
+  if ! curl -fsSL --retry 3 -o "$tmp/$asset" "$base/$asset"; then
+    echo "fetch_engine: download failed: $base/$asset" >&2
+    echo "  HTTP $(curl -o /dev/null -sw '%{http_code}' -I "$base/$asset" || echo '?') from that URL" >&2
+    return 1
+  fi
+  # The .dgst is best-effort to *fetch* (some mirrors drop it) but mandatory to
+  # satisfy, unless a pin covers it.
   curl -fsSL --retry 2 -o "$tmp/$asset.dgst" "$base/$asset.dgst" 2>/dev/null || true
 
   local actual; actual="$(sha256_of "$tmp/$asset")"
   local expected; expected="$(lock_sha xray "$key")"
+  # `|| status=$?` everywhere: a bare `check_against ...; status=$?` under
+  # `set -e` aborts the whole script the moment a check does not pass, which is
+  # how "digest not pinned yet" turned into an unexplained exit 1.
   local status=2
-  check_against "lock sha256" "$actual" "${pinned_sha:-$expected}"; status=$?
-  if [[ $status -eq 2 ]]; then
-    # No pin: fall back to the .dgst Xray publishes next to every asset. It holds
-    # MD5/SHA1/SHA256/SHA512 lines; the 64-hex field is the one we want.
-    if [[ -s "$tmp/$asset.dgst" ]]; then
-      local from_dgst
-      from_dgst="$(grep -Eio '[0-9a-f]{64}' "$tmp/$asset.dgst" | head -1 || true)"
-      check_against "upstream .dgst" "$actual" "$from_dgst"; status=$?
+  if check_against "pin/lock sha256" "$actual" "${pinned_sha:-$expected}"; then
+    status=0
+  else
+    status=$?
+  fi
+  if [[ $status -eq 2 && -s "$tmp/$asset.dgst" ]]; then
+    # No pin: fall back to the .dgst Xray publishes beside every asset. Take the
+    # hex on the SHA256-labelled line — a `[0-9a-f]{64}` grep would also match the
+    # first 64 characters of the SHA512 field and compare that instead.
+    # Match on *field length*, not /[0-9a-f]{64}/: mawk (the default awk on Debian
+    # and Ubuntu runners) does not enable interval expressions, so a `{64}` regex
+    # silently matches nothing and every digest looks "unavailable". MD5 is 32,
+    # SHA1 40 and SHA512 128 characters, so a 64-char field on the SHA256 line is
+    # unambiguous without needing intervals at all.
+    local from_dgst
+    from_dgst="$(awk '
+      tolower($0) ~ /sha256/ {
+        for (i = 1; i <= NF; i++)
+          if (length($i) == 64 && $i ~ /^[0-9a-fA-F]+$/) { print $i; exit }
+      }' "$tmp/$asset.dgst")"
+    if [[ -z "$from_dgst" ]]; then
+      # Bare "<hex>  <filename>" lines (coreutils format), SHA256-length only.
+      from_dgst="$(awk '$1 ~ /^[0-9a-fA-F]+$/ && length($1) == 64 { print $1; exit }' "$tmp/$asset.dgst")"
+    fi
+    if check_against "upstream .dgst" "$actual" "$from_dgst"; then
+      status=0
+    else
+      status=$?
     fi
   fi
   case $status in

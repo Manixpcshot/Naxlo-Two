@@ -169,17 +169,21 @@ void main() {
     });
 
     test('apply() records a switch and clears the dwell timer', () {
+      // 'b' has been leading long enough to clear the dwell window, so decide()
+      // must hand apply() a real switch — that is what makes "apply clears the
+      // timer" an observable assertion rather than a pass through keep().
+      final state = SelectionState(
+        currentServerId: 'a',
+        betterCandidateId: 'b',
+        betterSinceMs: now - 50000,
+        consecutiveSwitches: 0,
+      );
       final decision = selector.decide(
         ranked: <RankedServer>[row('b', 0.70), row('a', 0.50, current: true)],
-        state: SelectionState(
-          currentServerId: 'a',
-          betterCandidateId: 'b',
-          betterSinceMs: now - 50000,
-          consecutiveSwitches: 0,
-        ),
+        state: state,
         nowMs: now,
       );
-      final next = selector.apply(decision is SelectionDecision ? decision : decision, const SelectionState(currentServerId: 'a'), nowMs: now);
+      final next = selector.apply(state, decision, nowMs: now);
       expect(next.currentServerId, decision.serverId);
       expect(next.betterSinceMs, 0);
       expect(next.betterCandidateId, isEmpty);

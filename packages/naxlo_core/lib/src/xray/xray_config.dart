@@ -399,13 +399,16 @@ class XrayConfigBuilder {
           'some apps break. Consider the "bypass LAN" preset.');
     }
 
+    // Xray has no `final` field on routing: a catch-all rule in last position is
+    // the idiom. It has to be appended to the list, not bolted onto the map — a
+    // bare map literal in an `if` inside a map literal is not a map entry.
     final finalTag = r.preset == RoutingPreset.directFirst ? 'direct' : 'proxy';
+    if (finalTag != 'proxy') {
+      rules.add(<String, Object?>{'type': 'field', 'network': 'tcp,udp', 'outboundTag': finalTag});
+    }
     return <String, Object?>{
       'domainStrategy': r.domainStrategy,
       'rules': rules,
-      // Xray has no `final`; a catch-all last rule is the idiom.
-      if (finalTag != 'proxy')
-        <String, Object?>{'type': 'field', 'network': 'tcp,udp', 'outboundTag': finalTag},
     };
   }
 
