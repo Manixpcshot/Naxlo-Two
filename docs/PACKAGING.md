@@ -76,6 +76,28 @@ bash scripts/verify-engine-config.sh                     # needs engines fetched
 SDK download. The app tests use `AppState.inMemory()` — no disk, no process, no
 network (`checkForUpdates: false` is passed explicitly so a test never reaches out).
 
+## Linux build dependencies
+
+`flutter build linux` is a CMake build, not a Dart one: it needs `clang`, `ninja`,
+`pkg-config` and the **GTK 3 development headers**, plus `liblzma-dev` and
+`libunwind-dev` on Debian-family images. A machine that has the Flutter SDK but not
+those dies inside `pkg_check_modules` with
+
+    CMake Error: The following required packages were not found: - gtk+-3.0
+
+which mentions neither Dart nor our code — that is why the CI job installs them
+explicitly and why `packaging/linux/build_packages.sh` repeats the hint when the
+bundle directory it expects is missing (the symptom a packager actually sees).
+
+    Debian/Ubuntu  sudo apt-get install -y libgtk-3-dev liblzma-dev libunwind-dev
+    Fedora         sudo dnf install -y gtk3-devel xz-devel
+    Arch           sudo pacman -S gtk3
+
+For the packages themselves: `dpkg-deb` (deb), `rpmbuild` (rpm), `mkpkg`/Arch
+tools (`.pkg.tar.zst`), and `zstd` if you build the `.pkg.tar.zst` target. Missing
+one of those is why `build_packages.sh` skips a format with a named warning rather
+than exiting — a partial release is a decision, not an accident.
+
 ## Version + release flow
 
 ```
