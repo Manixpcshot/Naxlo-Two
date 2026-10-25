@@ -190,7 +190,10 @@ class Ranker {
       if (m.hasSamples && age > 0) 'last seen ${(age / 1000).toStringAsFixed(0)}s ago',
       if (m.consecutiveFailures > 0) 'penalty: ${m.consecutiveFailures} consecutive failures',
       if (m.isDown) 'penalty: marked down',
-      if (isCurrent) 'bonus: currently active (stickiness)',
+      // Only claim it when it pays: in `simple` the weight is 0, and a reason line
+      // that says "currently active" over a 0.000 contribution makes the explain
+      // sheet a lie about a mode that deliberately has no hysteresis term.
+      if (isCurrent && weights.stickiness > 0) 'bonus: currently active (stickiness)',
       if (server.weight != 0) 'manual bias ${server.weight > 0 ? '+' : ''}${server.weight}',
       if (exploration > 0) 'exploration +${(exploration * 100).toStringAsFixed(1)}%',
       if (!server.enabled) 'excluded: node disabled',

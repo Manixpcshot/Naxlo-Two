@@ -121,7 +121,7 @@ jobs:
           if flutter test -r expanded > test.log 2>&1; then
             tail -5 test.log
           else
-            bash ../scripts/annotate_log.sh test.log --max 6
+            bash ../scripts/annotate_log.sh test.log --max 6 --ctx 14
             { echo '### flutter test (app)'; echo '```'; tail -c 20000 test.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             tail -50 test.log
             exit 1
@@ -176,7 +176,14 @@ jobs:
           tail -8 fetch.log
 
       - name: Verify generated configs against real engines
-        run: bash scripts/verify-engine-config.sh
+        run: |
+          if ! bash scripts/verify-engine-config.sh > verify.log 2>&1; then
+            bash scripts/annotate_log.sh verify.log --max 4 \
+              --grep 'FAIL|REJECT|error|Error|unexpected|unknown|missing|SKIP'
+            tail -40 verify.log
+            exit 1
+          fi
+          tail -12 verify.log
 
   # The privacy promise in docs/PRIVACY.md is one careless import away from being
   # false, so CI checks it. Note what this does *not* do: it must not grep for the
@@ -310,8 +317,11 @@ jobs:
         if: matrix.target == 'linux-x64'
         run: |
           sudo apt-get update -qq
+          # Exactly what CMake's pkg_check_modules in flutter's linux/ runner needs.
+          # (`appindicator3-0.1` is not a valid package name on this image and apt
+          # exits 100 on the whole transaction, which looked like a build failure.)
           sudo apt-get install -y -qq --no-install-recommends \
-            libgtk-3-dev liblzma-dev libunwind-dev x11-apps appindicator3-0.1 libappindicator3-dev
+            libgtk-3-dev liblzma-dev libunwind-dev
           pkg-config --modversion gtk+-3.0
 
       - name: Build

@@ -48,6 +48,8 @@ class ServerMetrics {
     this.throughputKbps = 0,
     this.consecutiveFailures = 0,
     this.totalSamples = 0,
+    this.okCount = 0,
+    this.failCount = 0,
     this.lastSampleAtMs = 0,
     this.lastSuccessAtMs = 0,
     this.lastLatencyMs = -1,
@@ -67,7 +69,16 @@ class ServerMetrics {
   double throughputKbps;
   int consecutiveFailures;
   int totalSamples;
+
+  /// Successes/failures counted *without* the prior and *without* decay, for
+  /// reporting only. `okWeight`/`failWeight` carry both, which is what the ranking
+  /// wants and what a "3 of 4 probes succeeded" line must not pretend to be.
+  int okCount;
+  int failCount;
   int lastSampleAtMs;
+
+  /// Internal: has any sample been observed yet (see [observe]).
+  bool _hadSample = false;
   int lastSuccessAtMs;
   int lastLatencyMs;
   String lastError;
@@ -99,9 +110,9 @@ class ServerMetrics {
   /// on; showing a shrunken posterior as a percentage reads as "3 of my 4 probes
   /// failed" when it actually means "1 success, not enough evidence yet".
   double get observedRate {
-    final total = okWeight + failWeight;
+    final total = okCount + failCount;
     if (total <= 0) return double.nan;
-    return okWeight / total;
+    return okCount / total;
   }
 
   double get reliabilityVariance {
@@ -147,8 +158,14 @@ class ServerMetrics {
   /// measure the gap since the previous sample.
   void observe(SamplePoint sample, {required int halfLifeMs, double? alphaOverride}) {
     totalSamples++;
-    final dt = lastSampleAtMs == 0 ? 0.0 : math.max(0, sample.atMs - lastSampleAtMs).toDouble();
+    // Whether a previous sample exists has to be its own flag: `lastSampleAtMs == 0`
+    // is also a legitimate timestamp, and a session that counts from zero then got
+    // dt = 0 forever — old failures never decayed and byte samples never produced a
+    // rate. Tests found both symptoms; the cause was one sentinel.
+    final hadPrevious = _hadSample;
+    final dt = hadPrevious ? math.max(0, sample.atMs - lastSampleAtMs).toDouble() : 0.0;
     lastSampleAtMs = sample.atMs;
+    _hadSample = true;
 
     // Decay everything toward "no knowledge" first, so the merge below is a
     // plain weighted update with alpha derived from the *gap since last sample*.
@@ -159,11 +176,20 @@ class ServerMetrics {
     // alpha: how much of the new sample to take. A single fresh sample on top
     // of a long gap must move the estimate a lot (alpha → 1); many samples in a
     // short window should move it little.
-    final gapAlpha = halfLifeMs <= 0 ? 1.0 : 1.0 - math.pow(0.5, dt / halfLifeMs).toDouble();
-    final alpha = (alphaOverride ?? gapAlpha).clamp(0.02, 1.0).toDouble() * sample.source.reliability;
+    // No floor on alpha. The old 0.02 minimum (to keep a same-millisecond pair
+    // from being ignored) also meant "the last measurement is 1s old" moved the
+    // estimate 2.6x more than the half-life allows — a node probed every second was
+    // far too eager to change its mind. Same-instant samples get an explicit 1/3.
+    final gapAlpha = !hadPrevious
+        ? 1.0
+        : (dt <= 0
+            ? 1.0 / 3.0
+            : (halfLifeMs <= 0 ? 1.0 : 1.0 - math.pow(0.5, dt / halfLifeMs).toDouble()));
+    final alpha = (alphaOverride ?? gapAlpha).clamp(0.0, 1.0).toDouble() * sample.source.reliability;
 
     if (!sample.ok) {
       failWeight += 1.0 * sample.source.reliability;
+      failCount++;
       consecutiveFailures++;
       lastError = sample.error.isEmpty ? 'unreachable' : sample.error;
       _refreshHealth();
@@ -173,6 +199,7 @@ class ServerMetrics {
     consecutiveFailures = 0;
     lastSuccessAtMs = sample.atMs;
     okWeight += 1.0 * sample.source.reliability;
+    okCount++;
 
     if (sample.latencyMs >= 0) {
       final observed = sample.latencyMs.toDouble();
@@ -232,6 +259,8 @@ class ServerMetrics {
   /// Force the node into `down` (e.g. the engine exited while it was active).
   void noteEngineFailure(int nowMs, String error) {
     failWeight += 1.0;
+    failCount++;
+    _hadSample = true;
     consecutiveFailures++;
     lastSampleAtMs = nowMs;
     lastError = error;
@@ -247,6 +276,8 @@ class ServerMetrics {
         'kbps': _round3(throughputKbps),
         'fails': consecutiveFailures,
         'n': totalSamples,
+        'oks': okCount,
+        'fcs': failCount,
         'at': lastSampleAtMs,
         'okAt': lastSuccessAtMs,
         'lastLat': lastLatencyMs,
@@ -263,6 +294,8 @@ class ServerMetrics {
       jitterEwmaMs: json['jit'] == null ? null : asDouble(json['jit']),
       okWeight: asDouble(json['okw'], fallback: kPriorWeight),
       failWeight: asDouble(json['failw'], fallback: kPriorWeight),
+      okCount: asInt(json['oks']),
+      failCount: asInt(json['fcs']),
       throughputKbps: asDouble(json['kbps']),
       consecutiveFailures: asInt(json['fails']),
       totalSamples: asInt(json['n']),

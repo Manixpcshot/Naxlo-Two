@@ -246,6 +246,24 @@ class AppState extends ChangeNotifier {
       currentServerId: _selection.currentServerId,
     );
 
+    // A manual pick is not a candidate for the anti-flap machinery to reason
+    // about. Running `decide` anyway and applying its state used to replace
+    // "you pinned this server" with "leader is only 1.8% ahead", i.e. the UI
+    // explained a decision the user had made — and left the dwell timer armed for
+    // a switch that autoSelect=false forbids.
+    final manual = p.selectedServerId;
+    if (manual.isNotEmpty) {
+      if (_selection.currentServerId != manual) {
+        bundle = bundle.copyWith(selectionByProfile: <String, SelectionState>{
+          ...bundle.selectionByProfile,
+          p.id: _selection.copyWith(currentServerId: manual),
+        });
+        _persist();
+      }
+      _touch();
+      return;
+    }
+
     final decision = _selector.decide(
       ranked: _rankedWithBias,
       state: _selection,
@@ -445,7 +463,14 @@ class AppState extends ChangeNotifier {
       ],
       selectionByProfile: <String, SelectionState>{
         ...bundle.selectionByProfile,
-        p.id: SelectionState(currentServerId: serverId, switchedAtMs: _nowMs()),
+        p.id: SelectionState(
+          currentServerId: serverId,
+          switchedAtMs: _nowMs(),
+          // The status card reads this line, so it has to say who decided. Leaving
+          // it blank made the next probe round's "leader is 1.8% ahead" the reason
+          // for a connection the *user* chose.
+          lastReason: 'pinned by the user; the ranker will not move you',
+        ),
       },
     );
     _persist();
@@ -461,6 +486,10 @@ class AppState extends ChangeNotifier {
       profiles: <Profile>[
         for (final x in bundle.profiles) x.id == p.id ? x.copyWith(selectedServerId: '') : x,
       ],
+      selectionByProfile: <String, SelectionState>{
+        ...bundle.selectionByProfile,
+        p.id: _selection.copyWith(lastReason: 'released to automatic selection'),
+      },
     );
     _persist();
     await _recomputeRanking();

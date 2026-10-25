@@ -149,7 +149,10 @@ class ShareLinkParser {
   static ShareLinkImport parseMany(String blob, {String sourceId = ''}) {
     final nodes = <ServerNode>[];
     final errors = <String>[];
-    final lines = blob.split(RegExp(r'[\r\n]+'));
+    // Split on ONE newline, not `[\r\n]+`: collapsing blank lines shifts every
+    // subsequent index, so a bad link on line 5 was reported as "line 4" and the
+    // user went looking at the wrong line of a 200-line subscription.
+    final lines = blob.split(RegExp(r'\r?\n'));
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i].trim();
       if (line.isEmpty || line.startsWith('#') || line.startsWith('//')) continue;

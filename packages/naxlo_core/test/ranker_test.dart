@@ -163,13 +163,17 @@ void main() {
       expect(unknown.isEligible, isTrue);
       // The bonus must be a nudge, not a guarantee: exploration makes an
       // unmeasured node *closer* to a proven one than `simple` mode leaves it.
-      final inSimple = Ranker(config: simple).rank(
-        servers: <ServerNode>[node('known'), node('unknown')],
-        metrics: metrics,
-        nowMs: 1000000,
-      );
-      final ghostSimple = inSimple.firstWhere((r) => r.serverId == 'unknown').score;
-      expect(unknown.score > ghostSimple, isTrue);
+      // Compare against the same mode with exploration turned off, not against
+      // `simple`: the two modes have different weight vectors, so a cross-mode
+      // comparison measures the vectors, not the mechanism under test.
+      final noExplore = Ranker(config: const RankingConfig(mode: RankingMode.advanced, exploration: 0.0))
+          .rank(
+            servers: <ServerNode>[node('known'), node('unknown')],
+            metrics: metrics,
+            nowMs: 1000000,
+          )
+          .firstWhere((r) => r.serverId == 'unknown');
+      expect(unknown.score > noExplore.score, isTrue);
       expect(unknown.exploration, lessThan(0.1),
           reason: 'a nudge, so a coin flip never beats evidence outright');
     });

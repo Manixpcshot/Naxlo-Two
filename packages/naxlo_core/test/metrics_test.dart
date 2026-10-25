@@ -82,8 +82,8 @@ void main() {
     test('risk-adjusted reliability punishes tiny samples', () {
       final oneOk = observed(latencies: <int>[50]);
       final proven = observed(latencies: List<int>.filled(200, 50));
-      expect(oneOk.observedRate, greaterThanOrEqualTo(proven.observedRate),
-          reason: 'the raw rate looks perfect for 1/1 — which is why we do not rank on it');
+      expect(oneOk.observedRate, 1.0, reason: 'the reported rate is what happened: 1 of 1');
+      expect(proven.observedRate, 1.0);
       expect(oneOk.reliability, lessThan(proven.reliability),
           reason: 'the Jeffreys prior keeps a single success from reading as certain');
       expect(oneOk.reliabilityLcb < proven.reliabilityLcb, isTrue,
