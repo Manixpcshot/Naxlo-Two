@@ -44,7 +44,7 @@ Map<String, Object?> firstOutbound(Map<String, Object?> config) =>
 
 void main() {
   group('XrayConfigBuilder', () {
-    test('emits a runnable socks inbound plus proxy/direct/block/dns outbounds', () {
+    test('emits a runnable socks inbound plus proxy/direct/block outbounds', () {
       final node = buildNode();
       final profile = Profile(id: 'p', name: 'p', servers: <ServerNode>[node]);
       final generated = XrayConfigBuilder(profile, node, const RuntimeSettings()).build();
@@ -58,10 +58,13 @@ void main() {
       expect((socks['sniffing']! as Map<String, Object?>)['routeOnly'], true);
 
       final outbounds = generated.config['outbounds']! as List;
-      expect(outbounds.length, 4);
+      // Three, not four. The fourth used to be a `dns-out` outbound built on
+      // `dokodemo-door`, which is an *inbound* protocol: Xray answered
+      // "unknown config id: dokodemo-door" and refused every config we generate.
+      // Captured DNS is a routing rule onto the tunnel now (see the hijack test).
+      expect(outbounds.length, 3);
       expect(outbounds[1]! as Map<String, Object?>, containsPair('tag', 'direct'));
       expect(outbounds[2]! as Map<String, Object?>, containsPair('tag', 'block'));
-      expect(outbounds[3]! as Map<String, Object?>, containsPair('tag', 'dns-out'));
     });
 
     test('vless outbound carries encryption=none and the right stream settings', () {
@@ -183,7 +186,13 @@ void main() {
       final cfg = XrayConfigBuilder(profile, node, const RuntimeSettings()).build().config;
       final rules = ((cfg['routing']! as Map<String, Object?>)['rules']! as List<Object?>)
           .cast<Map<String, Object?>>();
-      expect(rules.any((r) => r['port'] == '53' || r['outboundTag'] == 'dns-out'), isTrue);
+      // `&&`, and onto the tunnel tag: `||` let this pass on the tag alone while the
+      // tag belonged to an outbound no Xray build will load.
+      expect(
+        rules.any((r) => r['port'] == '53' && r['outboundTag'] == XrayConfigBuilder.tunnelTag),
+        isTrue,
+        reason: 'leak-protect must send captured DNS through the tunnel, not a local resolver',
+      );
     });
 
     test('generated json is valid and compact-encodable', () {
