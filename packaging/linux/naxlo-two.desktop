@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.1
+Type=Application
+Name=Naxlo Two
+GenericName=Proxy client
+GenericName[fa]=کلاینت پروکسی
+GenericName[ru]=Прокси-клиент
+GenericName[ar]=عميل الوكيل
+Comment=Route traffic through Xray-core or sing-box
+Comment[fa]=ترافیک را از طریق Xray-core یا sing-box عبور دهید
+Comment[ru]=Маршрутизация трафика через Xray-core или sing-box
+Exec=naxlo-two %u
+Icon=naxlo-two
+Terminal=false
+Categories=Network;Security;FileTransfer;
+Keywords=proxy;vless;vmess;trojan;shadowsocks;reality;xray;sing-box;
+Keywords[fa]=پروکسی;وی‌لس;ورمیس;تروجان;ساکس;
+StartupNotify=false
+StartupWMClass=naxlo_two

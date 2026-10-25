@@ -1,0 +1,32 @@
+Naxlo Two
+Copyright (c) 2026 Naxlo Two contributors
+
+This product bundles or downloads third-party binaries at build time. They remain
+under their own licenses and are not relicensed by the MIT license of this project:
+
+Xray-core
+  Copyright (c) Xray-core contributors
+  License: Mozilla Public License 2.0
+  Source: https://github.com/XTLS/Xray-core
+  Obtained from: https://github.com/XTLS/Xray-core/releases
+
+sing-box
+  Copyright (c) SagerNet / sing-box contributors
+  License: GNU General Public License v3.0 only
+  Source: https://github.com/SagerNet/sing-box
+  Obtained from: https://github.com/SagerNet/sing-box/releases
+  Note: sing-box is executed as a separate process (exec, not linked). The GPL
+  obligations attach to sing-box itself; its complete corresponding source is
+  available at the URL above.
+
+Flutter SDK / Skia / Impeller  (build-time only, not redistributed as modified code)
+  License: BSD-3-Clause
+
+GeoIP.dat / GeoSite.dat (optional, user supplied)
+  Copyright (c) Loyalsoldier contributors
+  License: CC-BY-NC-SA-4.0 (non-commercial!) — not bundled in release artifacts.
+
+The project name, icon and UI of Naxlo Two are original. "Happ" is a project by
+Happ-proxy that inspired the UX of this client; no Happ source code, artwork,
+binary or trademark-bearing asset is redistributed here. If you intended to
+use Happ, download it from https://github.com/Happ-proxy.

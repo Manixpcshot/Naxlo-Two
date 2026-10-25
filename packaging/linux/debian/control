@@ -1,0 +1,22 @@
+Source: naxlo-two
+Section: net
+Priority: optional
+Maintainer: Naxlo <packaging@naxlo.dev>
+Build-Depends: debhelper-compat (= 13), flutter-sdk | dart-sdk, unzip
+Rules-Requires-Root: no
+Standards-Version: 4.7.0
+Homepage: https://github.com/Manixpcshot/Naxlo-Two
+
+Package: naxlo-two
+Architecture: amd64 arm64
+Depends: ${shlibs:Depends}, libgtk-3-0, desktop-file-utils
+Recommends: libnss3
+Suggests: xray-core | sing-box
+Description: Proxy client for Xray-core and sing-box
+ Naxlo Two configures and supervises Xray-core (or sing-box) as a child
+ process: local SOCKS5/HTTP inbounds, optional system-proxy takeover,
+ per-profile routing and DNS, and a ranker that scores servers on latency,
+ jitter, reliability and throughput instead of ping alone.
+ .
+ No telemetry: profiles, samples and logs stay in the user's app-support
+ directory.

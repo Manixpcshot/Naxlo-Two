@@ -1,0 +1,28 @@
+#!/usr/bin/make -f
+# Source build (dpkg-buildpackage). CI's .deb comes from
+# packaging/linux/build_packages.sh instead, so a builder without network or a
+# Flutter SDK still gets the same file layout.
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --no-parallel
+
+override_dh_auto_configure:
+	bash scripts/bootstrap_platforms.sh linux
+	cd app && flutter pub get
+
+override_dh_auto_build:
+	cd app && flutter build linux --release
+
+override_dh_auto_test:
+	cd app && flutter analyze && flutter test
+
+override_dh_auto_install:
+	install -Dm644 packaging/linux/naxlo-two.desktop \
+		$(CURDIR)/debian/naxlo-two/usr/share/applications/naxlo-two.desktop
+	install -d $(CURDIR)/debian/naxlo-two/opt/naxlo-two
+	cp -a app/build/linux/*/release/bundle/. $(CURDIR)/debian/naxlo-two/opt/naxlo-two/
+	printf '#!/bin/sh\nexec /opt/naxlo-two/naxlo_two "$$@"\n' \
+		> $(CURDIR)/debian/naxlo-two/usr/bin/naxlo-two
+	chmod 755 $(CURDIR)/debian/naxlo-two/usr/bin/naxlo-two

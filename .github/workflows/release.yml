@@ -1,0 +1,539 @@
+name: Release
+
+# Tag-driven artifact pipeline. Pushing `v1.2.3` (by hand or via
+# auto-release.yml) builds every platform, publishes one GitHub Release with all
+# of them, then rewrites the root `release` manifest so running installs can find
+# the new build and verify its sha256.
+#
+# Design notes worth keeping in mind when editing:
+#
+# * Nothing is published from a red tree: `preflight` runs the same analyze+test
+#   jobs as CI and every build job depends on it.
+# * `VERSION` must equal the tag. That check exists because the app compares its
+#   compiled-in `kNaxloVersion` against the manifest — a tag that disagrees with
+#   the source produces an updater that thinks it is always out of date, which is
+#   invisible until someone upgrades twice.
+# * The manifest commit is written back to `main` with `[skip ci]`, and
+#   auto-release.yml ignores `chore(release):` commits, so the tag → build →
+#   commit → push cycle cannot loop.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish, e.g. v0.1.0"
+        required: true
+        type: string
+      include_arm:
+        description: "Also build the Windows ARM64 installer (needs an ARM64 Windows runner)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  flutter-version: "3.24.5"
+  app-name: Naxlo
+  project: naxlo_two
+
+jobs:
+  preflight:
+    name: version + tests gate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag and version
+        id: v
+        run: |
+          tag="${{ github.event.inputs.tag }}"
+          [[ -z "$tag" ]] && tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$tag' is not a vMAJOR.MINOR.PATCH tag"
+            exit 1
+          fi
+          ver="${tag#v}"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "version=$ver" >>"$GITHUB_OUTPUT"
+          if [[ "$(tr -d '[:space:]' < VERSION)" != "$ver" ]]; then
+            echo "::error::VERSION says $(cat VERSION) but the tag says $ver."
+            echo "    Run scripts/set_version.sh $ver and merge it first."
+            exit 1
+          fi
+          grep -q "kNaxloVersion = '$ver'" packages/naxlo_core/lib/src/version.dart || {
+            echo "::error::packages/naxlo_core/lib/src/version.dart is not at $ver"
+            exit 1
+          }
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
+      - uses: dart-lang/setup-dart@v1
+      - name: Core tests
+        working-directory: packages/naxlo_core
+        run: dart pub get && dart analyze && dart test
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+      - name: App tests
+        working-directory: app
+        run: |
+          bash ../scripts/bootstrap_platforms.sh linux
+          flutter pub get
+          flutter analyze
+          flutter test
+
+  # Engine binaries come from upstream releases rather than this repo, per
+  # target, and are cached so re-running a failed job is not a re-download.
+  engines:
+    name: engine binaries
+    needs: preflight
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+          - os: windows
+            arch: amd64
+          - os: macos
+            arch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch
+        env:
+          XRAY_VERSION: ${{ vars.XRAY_VERSION }}
+          SINGBOX_VERSION: ${{ vars.SINGBOX_VERSION }}
+        run: bash scripts/fetch_engine.sh --engine both --os "${{ matrix.os }}" --arch "${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-${{ matrix.os }}-${{ matrix.arch }}
+          path: app/assets/engine/**
+          retention-days: 5
+
+  build-linux:
+    needs: [preflight, engines]
+    name: linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+            pub_arch: amd64
+            dbgsym: ""
+          - arch: arm64
+            # GitHub's ARM Linux runners are free for public repos; using them
+            # beats cross-compiling Flutter's Linux embedder by hand.
+            runner: ubuntu-24.04-arm
+            pub_arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev rpm
+
+      - name: Unpack engine
+        uses: actions/download-artifact@v4
+        with:
+          name: engine-linux-${{ matrix.pub_arch }}
+          path: app/assets/engine
+
+      - name: Build
+        working-directory: app
+        run: |
+          bash ../scripts/bootstrap_platforms.sh linux
+          flutter pub get
+          flutter build linux --release
+
+      - name: Package deb / rpm / pkg.tar.zst / AppImage
+        working-directory: app
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: bash ../packaging/linux/build_packages.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naxlo-linux-${{ matrix.arch }}
+          path: |
+            app/dist/*.deb
+            app/dist/*.rpm
+            app/dist/*.pkg.tar.zst
+            app/dist/*.AppImage
+          if-no-files-found: error
+
+  build-windows:
+    needs: [preflight, engines]
+    name: windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      - name: Unpack engine
+        uses: actions/download-artifact@v4
+        with:
+          name: engine-windows-amd64
+          path: app/assets/engine
+
+      - name: Build
+        working-directory: app
+        shell: bash
+        run: |
+          bash ../scripts/bootstrap_platforms.sh windows
+          flutter pub get
+          flutter build windows --release
+
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          choco install innosetup -y --no-progress
+          # OutputDir in the .iss is relative to the script, so the installer lands
+          # in packaging\windows\installer\Output — checking for it there (rather
+          # than trusting ISCC's exit code, which is 0 even for a missing icon) is
+          # the difference between a green job and an empty release.
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            /DMyAppVersion=$env:VERSION `
+            /DEngineBinary=app\assets\engine\windows-amd64\xray\xray.exe `
+            packaging\windows\naxlo-two.iss
+          New-Item -ItemType Directory -Force -Path app\dist | Out-Null
+          Copy-Item packaging\windows\installer\Output\setup-Naxlo.x64.exe app\dist\ -ErrorAction SilentlyContinue
+          if (-not (Test-Path app\dist\setup-Naxlo.x64.exe)) {
+            Write-Error "Inno Setup produced no installer under packaging\windows\installer\Output"
+            exit 1
+          }
+          Get-ChildItem app\dist | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naxlo-windows-x64
+          path: app/dist/*.exe
+          if-no-files-found: error
+
+  # Two native builds, then `lipo` merges them: Flutter has no cross-arch flag
+  # for macOS, and an arm64-only or x64-only dmg is the classic "works on my Mac"
+  # bug for a universal binary claim.
+  build-macos-arch:
+    needs: [preflight, engines]
+    name: macos ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x86_64
+            runner: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      - name: Unpack engine
+        uses: actions/download-artifact@v4
+        with:
+          name: engine-macos-amd64
+          path: app/assets/engine
+
+      - name: Build
+        working-directory: app
+        run: |
+          bash ../scripts/bootstrap_platforms.sh macos
+          flutter pub get
+          flutter build macos --release
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc build/macosx/Build/Products/Release/naxlo_two.app \
+            "dist/naxlo_two-$ARCH.app.zip"
+        env:
+          ARCH: ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naxlo-macos-${{ matrix.arch }}
+          path: app/dist/*.app.zip
+          if-no-files-found: error
+
+  # Universal = two native builds merged per Mach-O file, not a flag. Flutter has
+  # no `--arch` for macOS, so this job does the part that actually has to be
+  # correct: lipo every executable/dylib in the bundle, re-sign ad-hoc (a merged
+  # binary has a broken signature the moment it is merged), then hdiutil.
+  build-macos-universal:
+    name: macos universal dmg
+    needs: [preflight, build-macos-arch]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "naxlo-macos-*"
+          path: app/dist
+          merge-multiple: true
+
+      - name: Merge and pack
+        working-directory: app
+        env:
+          APP_NAME: naxlo_two.app
+        run: |
+          set -euo pipefail
+          ls -l dist
+          rm -rf merge && mkdir -p merge/a merge/b
+          ditto -x -k "dist/${APP_NAME%.app}-arm64.app.zip" merge/a
+          ditto -x -k "dist/${APP_NAME%.app}-x86_64.app.zip" merge/b
+          # The zips were made with `ditto -c -k` on the .app itself, so the
+          # archive root is the bundle; normalise both to merge/<x>/naxlo_two.app.
+          for side in a b; do
+            if [[ ! -d "merge/$side/$APP_NAME" && -d "merge/$side/dist/$APP_NAME" ]]; then
+              mv "merge/$side/dist/$APP_NAME" "merge/$side/$APP_NAME"
+            fi
+          done
+          cp -a "merge/a/$APP_NAME" "merge/universal"
+          merged=0
+          while IFS= read -r f; do
+            rel="${f#merge/a/$APP_NAME/}"
+            other="merge/b/$APP_NAME/$rel"
+            [[ -f "$other" ]] || continue
+            file "$f" | grep -qi 'Mach-O' || continue
+            file "$other" | grep -qi 'Mach-O' || continue
+            if lipo -info "$f" | grep -q 'Architectures in the fat file'; then
+              cp "$f" "merge/universal/$rel"; continue
+            fi
+            lipo -create "$f" "$other" -output "merge/universal/$rel" && merged=$((merged + 1))
+          done < <(find "merge/a/$APP_NAME" -type f)
+          echo "lipot $merged file(s) into the bundle"
+          lipo -info "merge/universal/Contents/MacOS/$APP_NAME" 2>/dev/null || \
+            lipo -info "merge/universal/Contents/MacOS/naxlo_two"
+          # Ad-hoc signature: a merged binary is an invalidly signed one, and macOS
+          # kills it on launch rather than warning. Real distribution needs a
+          # Developer ID + notarization, which this repo cannot do from CI.
+          codesign --remove-signature "merge/universal" 2>/dev/null || true
+          codesign --force --deep --sign - "merge/universal"
+          mkdir -p dmgroot && cp -a "merge/universal" "dmgroot/$APP_NAME"
+          ln -s /Applications "dmgroot/Applications"
+          hdiutil create -volname "Naxlo Two" -srcfolder dmgroot -ov -format UDZO \
+            "dist/Naxlo.macOS.universal.dmg"
+          shasum -a 256 "dist/Naxlo.macOS.universal.dmg"
+          rm -rf merge
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naxlo-macos-universal
+          path: app/dist/Naxlo.macOS.universal.dmg
+          if-no-files-found: error
+
+  # Flutter cannot cross-compile Windows ARM64 from an x64 host, so this target
+  # needs an ARM64 runner. It is opt-in via workflow_dispatch rather than
+  # `continue-on-error`, because a job that is allowed to fail is how an advertised
+  # download silently stops existing while the README still links to it.
+  build-windows-arm:
+    name: windows arm64
+    if: ${{ github.event.inputs.include_arm == 'true' }}
+    needs: [preflight, engines]
+    runs-on: [windows-11-arm]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine-windows-amd64
+          path: app/assets/engine
+
+      - name: Build + installer
+        working-directory: app
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          bash ../scripts/bootstrap_platforms.sh windows
+          flutter pub get
+          flutter build windows --release
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            /DMyAppVersion=$env:VERSION /DMyAppArch=arm64 `
+            ..\packaging\windows\naxlo-two.iss
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item ..\packaging\windows\installer\Output\setup-Naxlo.arm64.exe dist\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naxlo-windows-arm64
+          path: app/dist/*.exe
+          if-no-files-found: error
+
+  build-android:
+    needs: preflight
+    name: android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      - name: Build
+        working-directory: app
+        run: |
+          bash ../scripts/bootstrap_platforms.sh android
+          flutter pub get
+          flutter build apk --release --split-per-abi
+          flutter build apk --release --target-platform android-arm,android-arm64,android-x64 \
+            || flutter build apk --release
+
+      # Without these two secrets the release ships debug-signed APKs and says so
+      # in the notes — a silent fallback to unsigned output is worse.
+      - name: Sign (when keys are configured)
+        working-directory: app
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -z "${KEYSTORE:-}" ]]; then
+            echo "::notice title=unsigned::ANDROID_KEYSTORE_BASE64 not set; APKs are debug-signed"
+            echo "unsigned" > dist/signing.txt
+          else
+            echo "$KEYSTORE" | base64 -d > naxlo-release.keystore
+            for apk in build/app/outputs/flutter-apk/app-*.apk; do
+              [[ -f "$apk" ]] || continue
+              zipalign -p -f 4 "$apk" "$apk.aligned" && mv "$apk.aligned" "$apk"
+              apksigner sign --ks naxlo-release.keystore --ks-key-alias "$KEY_ALIAS" \
+                --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD "$apk"
+              apksigner verify --print-certs "$apk" | head -3
+            done
+            rm -f naxlo-release.keystore
+          fi
+
+      - name: Collect
+        working-directory: app
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/Naxlo.apk" 2>/dev/null || true
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            src="build/app/outputs/flutter-apk/app-$abi-release.apk"
+            [[ -f "$src" ]] && cp "$src" "dist/Naxlo.android.$abi.apk"
+          done
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naxlo-android
+          path: app/dist/*.apk
+          if-no-files-found: error
+
+  publish:
+    name: create release + update manifest
+    needs: [preflight, build-linux, build-windows, build-macos-arch, build-macos-universal, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "naxlo-*"
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: artifacts
+        run: |
+          sha256sum ./* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or refresh the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          notes="$(gh api "repos/{owner}/{repo}/releases/tags/$TAG" --jq .body 2>/dev/null || true)"
+          if [[ -z "$notes" ]]; then
+            notes="$(git log --format='- %s (%h)' --no-merges "$(git describe --tags --abbrev=0 2>/dev/null || echo HEAD~20)"..HEAD 2>/dev/null | head -60)"
+          fi
+          {
+            printf '### Naxlo Two %s\n\n' "$VERSION"
+            printf '%s\n\n' "$notes"
+            printf 'Engines bundled by this build: see `packaging/` notes. Installers are\n'
+            printf 'sha256-summed in `SHA256SUMS.txt`; the in-app updater verifies before installing.\n\n'
+            printf '### Install\n\n| Platform | File |\n| --- | --- |\n'
+            for f in setup-Naxlo.x64.exe setup-Naxlo.arm64.exe Naxlo.macOS.universal.dmg Naxlo.linux.x64.deb \
+                     Naxlo.linux.x64.rpm Naxlo.linux.x64.pkg.tar.zst Naxlo.linux.x64.AppImage Naxlo.apk; do
+              [[ -f "artifacts/$f" ]] && printf '| %s | `%s` |\n' "${f%%.*}" "$f"
+            done
+          } > body.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file body.md
+            gh release upload "$TAG" artifacts/* --clobber
+          else
+            gh release create "$TAG" artifacts/* --title "Naxlo Two $VERSION" --notes-file body.md --target "$(git rev-parse HEAD)"
+          fi
+
+      # The app's updater reads this file from the repository root, so a release
+      # without it is a release nobody's client can find.
+      - name: Regenerate the update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          bash scripts/gen_release_manifest.sh "$TAG"
+          jq -e '.windows.stable.link and .linux.stable.link' release >/dev/null
+
+      - name: Commit manifest
+        run: |
+          git config user.name "naxlo-release-bot"
+          git config user.email "bot@naxlo.dev"
+          git add release
+          if git diff --cached --quiet; then
+            echo "manifest unchanged"
+          else
+            git commit -m "chore(release): update manifest for ${{ github.event.inputs.tag || github.ref_name }} [skip ci]"
+            git push origin HEAD:main
+          fi

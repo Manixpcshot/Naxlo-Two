@@ -1,0 +1,132 @@
+name: Auto release
+
+# "Release on GitHub after every update": merging to `main` is the update. This
+# workflow turns the conventional-commit subjects since the last tag into a
+# semver bump, commits VERSION, tags it, and lets release.yml do the building.
+#
+#   fix: / perf: / refactor: / docs: / test: / build: / ci:   →  patch
+#   feat: / any `!` / BREAKING CHANGE:                        →  minor (or major)
+#   chore(release): … and [skip-release]                      →  no release
+#
+# Two guards keep this from eating itself:
+#   1. The manifest commit release.yml pushes is `chore(release):` — ignored here.
+#   2. Both workflows push with a `[skip ci]`-style marker or a `tags-ignore` rule
+#      in ci.yml, so push → CI → push cannot cycle.
+#
+# If you would rather release by hand, disable this workflow (Actions → Auto
+# release → Disable) and tag whenever you like; release.yml is standalone.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Force a bump type instead of inferring it"
+        required: false
+        type: choice
+        default: auto
+        options: [auto, patch, minor, major, none]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: decide + tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Skip non-release commits
+        id: gate
+        run: |
+          msg="$(git log -1 --pretty=%B)"
+          if grep -qiE '^chore\(release\):|\[skip-release\]|\[skip ci\]' <<<"$msg"; then
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+            echo "Head commit is a release bookkeeping commit or opted out — nothing to do."
+            exit 0
+          fi
+          echo "skip=false" >>"$GITHUB_OUTPUT"
+
+      - name: Compute version + notes
+        id: calc
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          last_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [[ -n "$last_tag" ]]; then range="$last_tag..HEAD"; else range="HEAD"; fi
+          subjects="$(git log --no-merges --pretty=%s "$range" 2>/dev/null || true)"
+          bodies="$(git log --no-merges --pretty=%b "$range" 2>/dev/null || true)"
+
+          forced="${{ inputs.bump }}"
+          bump=patch
+          if [[ -n "$forced" && "$forced" != "auto" ]]; then
+            bump="$forced"
+          elif grep -q 'BREAKING CHANGE' <<<"$bodies" || grep -qE '^[a-z]+(\([^)]+\))?!:' <<<"$subjects"; then
+            bump=major
+          elif grep -qE '^feat(\([^)]+\))?!?:' <<<"$subjects"; then
+            bump=minor
+          fi
+          if [[ "$bump" == "none" ]]; then
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+            echo "bump forced to none; no release for this push"
+            exit 0
+          fi
+
+          current="$(tr -d '[:space:]' < VERSION)"
+          IFS=. read -r major minor patch _ <<<"$current"
+          case "$bump" in
+            major) major=$((major+1)); minor=0; patch=0 ;;
+            minor) minor=$((minor+1)); patch=0 ;;
+            patch) patch=$((patch+1)) ;;
+          esac
+          next="$major.$minor.$patch"
+          echo "version=$next" >>"$GITHUB_OUTPUT"
+          echo "bump=$bump" >>"$GITHUB_OUTPUT"
+          {
+            echo "notes<<NOTES_EOF"
+            if [[ -n "$subjects" ]]; then
+              echo "$subjects" | sed 's/^/- /'
+            else
+              echo "- internal changes"
+            fi
+            echo "NOTES_EOF"
+          } >>"$GITHUB_OUTPUT"
+          echo "==> $current -> $next ($bump)"
+
+      - name: Commit, tag, push
+        if: steps.gate.outputs.skip == 'false' && steps.calc.outputs.skip != 'true' && steps.calc.outputs.version != ''
+
+        env:
+          VERSION: ${{ steps.calc.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "naxlo-release-bot"
+          git config user.email "bot@naxlo.dev"
+          bash scripts/set_version.sh "$VERSION"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no version change to commit"
+            exit 0
+          fi
+          git commit -m "chore(release): v$VERSION [skip ci]"
+          git tag "v$VERSION"
+          git push origin "HEAD:main" "v$VERSION"
+
+      - name: Record the changelog entry
+        if: steps.calc.outputs.version != '' && steps.gate.outputs.skip == 'false' && steps.calc.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.calc.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ steps.calc.outputs.notes }}
+        run: |
+          gh release create "v$VERSION" \
+            --title "Naxlo Two $VERSION" \
+            --notes "$(printf '%s\n\nInstallers for every platform are attached by release.yml, which this tag just triggered.\n' "${NOTES:-}")" \
+            || echo "release body pre-created by publish job; continuing"

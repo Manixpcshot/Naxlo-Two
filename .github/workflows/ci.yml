@@ -1,0 +1,232 @@
+name: CI
+
+# Every push and every pull request gets the same treatment: the pure-Dart core
+# is analyzed and tested on the Dart VM (fast, no Flutter download), and the app
+# is analyzed and widget-tested. The split is deliberate — `dart test` for the
+# ranking math runs in seconds, so failures point at the layer that broke instead
+# of at "the flutter job timed out".
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  flutter-version: "3.24.5"
+  line-length: "110"
+
+jobs:
+  core:
+    name: naxlo_core · analyze + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/naxlo_core
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      - name: Formatting
+        # Informational, not blocking: the formatter's opinion about a 500-line
+        # widget build is worth seeing but should never be the reason a
+        # behavioural fix waits a day. Flip this to `--set-exit-if-changed`
+        # failure once the tree is formatted once and kept that way.
+        run: |
+          if ! dart format --output=none --set-exit-if-changed --line-length "$line_length" lib test; then
+            echo "::warning title=dart format::naxlo_core is not formatted; run 'dart format --line-length 110 packages/naxlo_core'"
+          }
+        env:
+          line_length: ${{ env.line-length }}
+
+      - name: Analyze
+        run: dart analyze
+
+      - name: Test
+        run: dart test -r expanded --concurrency 4
+
+  app:
+    name: app · analyze + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      # The repo does not vendor app/{android,ios,linux,macos,windows}; the
+      # engine's `dart test` needs none of it, but `flutter test` compiles the
+      # plugin registrant and wants a linux/ folder to exist for the
+      # flutter_tester target resolution.
+      - name: Generate platform scaffolding
+        run: bash ../scripts/bootstrap_platforms.sh linux
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test -r expanded
+
+      - name: Formatting
+        continue-on-error: true
+        run: dart format --output=none --set-exit-if-changed --line-length 110 lib test
+
+  # Proves the two things that are trivially broken and never caught by unit
+  # tests: the update manifest is parseable by the same code the app ships, and
+  # the generated engine config is valid JSON that the real engine accepts.
+  manifest-and-config:
+    name: release manifest + config smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate the release manifest
+        run: |
+          jq -e '
+            .app == "naxlo_two"
+            and (.windows.stable.version | type == "string")
+            and (.linux | has("stable"))
+            and (.macos | has("stable"))
+          ' release > /dev/null
+          echo "release manifest ok ($(jq '.filenum' release) assets listed)"
+
+      # The config builders are the one place where an invented JSON key does not
+      # throw a Dart error — it silently produces a config the engine refuses to
+      # load, at the user's first connect. So the sample configs in tool/samples/
+      # (written by hand to match what the builders emit) are fed to the real
+      # `xray test` / `sing-box check` here.
+      #
+      # Advisory for now: it depends on GitHub release *assets* being reachable
+      # and on upstream not renaming an archive. Once three consecutive runs are
+      # green, delete `continue-on-error`.
+      - name: Verify sample configs against real engines
+        continue-on-error: true
+        run: |
+          bash scripts/fetch_engine.sh --engine both --os linux --arch amd64
+          bash scripts/verify-engine-config.sh
+
+  cross-compile:
+    name: build smoke (${{ matrix.target }})
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-latest
+            build: flutter build linux --release
+          - target: apk-arm64
+            os: ubuntu-latest
+            build: flutter build apk --release --target-platform android-arm64 --split-per-abi
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'apk-arm64'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      - name: Generate platform scaffolding
+        run: |
+          case "${{ matrix.target }}" in
+            linux-*) bash ../scripts/bootstrap_platforms.sh linux ;;
+            apk-*)   bash ../scripts/bootstrap_platforms.sh android ;;
+          esac
+
+      - name: Fetch engine binaries
+        run: bash ../scripts/fetch_engine.sh --engine xray
+
+      - name: Build
+        run: ${{ matrix.build }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-${{ matrix.target }}
+          path: |
+            app/build/linux/x64/release/bundle/**
+            app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: warn
+          retention-days: 7
+
+  # The privacy promise in docs/PRIVACY.md is a grep away from being false, so
+  # CI runs the grep. New network or process call sites have to appear here, in
+  # the diff, where someone can object — which is a cheaper guard than a policy
+  # document nobody re-reads.
+  privacy-guards:
+    name: no telemetry, no surprise sockets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No analytics, crash reporters or tracking ids
+        run: |
+          if grep -rniE "analytics|sentry|firebase|posthog|matomo|amplitude|bugsnag|telemetry" app/lib packages/*/lib; then
+            echo "::error::a telemetry-looking identifier appeared in shipped code; see docs/PRIVACY.md"
+            exit 1
+          fi
+
+      - name: Network call sites are only the four expected ones
+        run: |
+          found="$(grep -rlE "HttpClient\(|Socket\.connect|SecureSocket\.connect|RawSocket" app/lib packages/*/lib | sort | tr '\n' ' ')"
+          expected="app/lib/state/probe_service.dart app/lib/state/subscription_service.dart app/lib/state/update_service.dart "
+          for f in $found; do
+            case "$expected" in
+              *"$f"*) ;;
+              *) echo "::error::unexpected network call site: $f"; exit 1 ;;
+            esac
+          done
+          echo "network call sites ok: $found"
+
+      - name: Process spawn sites are only the engine and the proxy
+        run: |
+          found="$(grep -rlE "Process\.(start|run)" app/lib packages/*/lib | sort | tr '\n' ' ')"
+          for f in $found; do
+            case "$f" in
+              app/lib/state/engine_service.dart|app/lib/state/system_proxy.dart|app/lib/state/update_service.dart|app/lib/state/engine_locator.dart) ;;
+              *) echo "::error::unexpected process spawn site: $f"; exit 1 ;;
+            esac
+          done
+          echo "process spawn sites ok: $found"
+
+      - name: No credentials in the manifest or committed assets
+        run: |
+          if grep -rnE "BEGIN (RSA|OPENSSH|EC) PRIVATE KEY" . --include='*' --exclude-dir=.git; then
+            echo "::error::private key material committed"
+            exit 1
+          fi
+          if jq -e '.windows.stable.link | test("^https://")' release >/dev/null; then
+            echo "manifest download link is https"
+          else
+            echo "::error::release manifest link is not https"
+            exit 1
+          fi
