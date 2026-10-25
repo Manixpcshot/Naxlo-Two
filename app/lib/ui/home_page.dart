@@ -234,7 +234,16 @@ class _ActiveNodeCard extends StatelessWidget {
             runSpacing: 8,
             children: <Widget>[
               LatencyChip(latencyMs: rank?.latencyMs ?? -1, jitterMs: rank?.jitterMs),
-              _MetricPill(label: l10n.t('label.reliability'), value: rank == null ? '—' : '${(rank.reliability * 100).round()}%'),
+              // The *measurement*, not the ranking bound. `rank.reliability` is the
+              // conservative lower bound we score on, which for a node with one good
+              // probe reads "50%" under a green bar; the pill next to it already says
+              // how much to trust the number, so the pair is rate + confidence.
+              _MetricPill(
+                label: l10n.t('label.reliability'),
+                value: rank == null || !app.metricsOf(rank.serverId).hasSamples
+                    ? '—'
+                    : '${(app.metricsOf(rank.serverId).observedRate * 100).round()}%',
+              ),
               _MetricPill(label: l10n.t('label.confidence'), value: rank == null ? '—' : '${(rank.confidence * 100).round()}%'),
               if (pinned)
                 _MetricPill(label: '', value: l10n.t('status.pinned'), accent: Palette.amber, icon: Icons.push_pin_rounded),

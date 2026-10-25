@@ -69,7 +69,9 @@ class RankedServer {
     final parts = <String>[
       if (hasLatency) '${latencyMs}ms' else 'no data',
       if (jitterMs >= 0) '±$jitterMs',
-      'ok ${(reliability * 100).round()}%',
+      // Named for what it is: this row explains the *score*, whose reliability term
+      // is the lower bound — not the success rate the status screens show.
+      'lcb ${(reliability * 100).round()}%',
       if (consecutiveFailures > 0) 'x$consecutiveFailures fail',
       if (isCurrent) 'active',
     ];
