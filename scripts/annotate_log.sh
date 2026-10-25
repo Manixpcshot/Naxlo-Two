@@ -22,7 +22,12 @@ USAGE
 }
 
 log=""
-level="failure"
+# "failure" is the *REST annotation level*; the workflow command is `::error::`.
+# Emitting `::failure::` is a no-op GitHub prints as plain log text — which is how
+# one full CI round came back showing nothing but "Process completed with exit
+# code 1". The name is accepted here and translated, so the flag reads naturally
+# at both layers.
+level="error"
 ctx=4
 max=6
 pattern='(\[E\]$|Expected:|Actual:|Which:|^\s*error|Error:|error •|error -|FAILED|failed|Exception|unhandled|Cannot open|No such file)'
@@ -41,10 +46,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$log" && -f "$log" ]] || {
+case "$level" in
+  error | fail | failure) level="error" ;;
+  warning | warn) level="warning" ;;
+  notice | info) level="notice" ;;
+  *) echo "annotate_log: --level must be error, warning or notice" >&2; exit 2 ;;
+esac
+
+if [[ -z "$log" || ! -f "$log" ]]; then
   echo "::${level}::annotate_log: no log file at '${log:-<none>}'"
   exit 0
-}
+fi
 
 # % must become %25, \r must go: workflow-command parsing eats raw % and CR.
 clean() { sed -E 's/\r//g; s/^[[:space:]]+//; s/[[:space:]]+$//' | sed 's/%/%25/g'; }
@@ -79,3 +91,10 @@ grep -E -A "$ctx" -- "$pattern" "$log" 2>/dev/null |
     END {
       if (buf != "" && n < maxa) printf "::%s::%s\n", lvl, buf
     }'
+
+# Never silent: an annotation guard that prints nothing when the log's format
+# changes is indistinguishable from a passing step. Say so, and show the tail.
+if ! grep -qE -- "\[E\]$|(^|[^[:alnum:]_])(error|warning|Error)([^[:alnum:]_]|$)|FAIL|failed|Exception" "$log"; then
+  tail="$(tail -12 "$log" | clean | awk '{printf "%s%s", (NR > 1 ? "%0A" : ""), $0}')"
+  echo "::${level}::annotate_log: nothing matched the diagnostic pattern; raw tail:%0A${tail}"
+fi
