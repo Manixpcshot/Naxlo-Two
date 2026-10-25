@@ -1,0 +1,16 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+
+linter:
+  rules:
+    - always_use_package_imports
+    - avoid_print
+    - prefer_const_constructors
+    - prefer_final_locals
+    - prefer_single_quotes
+    - sort_child_properties_last
+    - unawaited_futures
+    - use_super_parameters

@@ -1,0 +1,59 @@
+# ── Dart / Flutter ──────────────────────────────────────────────
+.dart_tool/
+.packages
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata.bak
+pubspec.lock
+analysis_output.log
+
+# generated platform scaffolding (see scripts/bootstrap_platforms.sh)
+# kept out of VCS so `flutter create` can regenerate/upgrade them freely
+app/android/
+app/ios/
+app/linux/
+app/macos/
+app/windows/
+app/web/
+
+# build output
+build/
+app/build/
+**/ephemeral/
+*.egg-info/
+coverage/
+app/coverage/
+
+# engine binaries fetched by scripts/fetch_engine.sh (downloaded in CI instead)
+app/assets/engine/
+engine/
+
+# packaged artifacts
+dist/
+*.AppImage
+*.dmg
+*.pkg.tar.zst
+*.deb
+*.rpm
+*.exe
+*.apk
+*.ipa
+
+# ── IDE / OS ───────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.log
+
+# ── secrets (never commit) ─────────────────────────────────────
+*.keystore
+key.properties
+*.p12
+*.mobileprovision
+.env
+
+# Inno Setup build output (packaging/windows/naxlo-two.iss -> OutputDir)
+packaging/windows/installer/

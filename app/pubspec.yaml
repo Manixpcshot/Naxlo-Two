@@ -1,0 +1,30 @@
+name: naxlo_two
+description: >-
+  Naxlo Two — a Flutter desktop and mobile client for self-hosted proxy
+  servers, driving Xray-core or sing-box, with adaptive server ranking.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # All protocol/ranking/config logic lives in the pure-Dart package so it can
+  # be unit tested without a device or a display server.
+  naxlo_core:
+    path: ../packages/naxlo_core
+  provider: ^6.1.2
+  path_provider: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

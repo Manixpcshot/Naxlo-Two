@@ -1,0 +1,15 @@
+{
+  "_readme": [
+    "sha256 of the engine archives this project builds against, keyed <os>-<arch>.",
+    "Scripts read it via scripts/fetch_engine.sh; a mismatch is a build failure, not a warning.",
+    "Xray publishes a .dgst per asset, so its digest is always verifiable upstream. sing-box",
+    "publishes none at all, which is exactly why pinning belongs here: a supply-chain swap of",
+    "an engine binary is otherwise invisible in the build log.",
+    "To (re)generate on a network you trust:",
+    "  scripts/fetch_engine.sh --engine both --os linux --arch amd64 --write-lock",
+    "then commit the file. Deliberately shipped empty: a placeholder hash is worse than none,",
+    "because it fails the build for the wrong reason and teaches people to delete the check."
+  ],
+  "xray": {},
+  "sing-box": {}
+}

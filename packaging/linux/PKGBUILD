@@ -1,0 +1,93 @@
+# Maintainer: Naxlo <packaging@naxlo.dev>
+#
+# Arch Linux PKGBUILD for Naxlo Two — the *source* build, for people who want a
+# package built from this repo rather than a CI artifact:
+#
+#   makepkg -si
+#
+# CI does not use this file: packaging/linux/build_packages.sh writes the
+# .pkg.tar.zst directly, because makepkg insists on a non-root builder user and a
+# clean chroot that GitHub runners do not give you. Both paths install the same
+# layout (/opt/naxlo-two + a /usr/bin launcher), so `pacman -Ql` output matches.
+#
+# Why `flutter build` here instead of a prebuilt tarball: AUR policy (and good
+# packaging practice generally) is that the package contains what the source
+# produced, not what someone uploaded.
+pkgbase=naxlo-two
+pkgname=naxlo-two
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Proxy client for Xray-core and sing-box with configurable server ranking"
+arch=('x86_64' 'aarch64')
+url="https://github.com/Manixpcshot/Naxlo-Two"
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'gtk3' 'libx11' 'desktop-file-utils')
+makedepends=('flutter' 'git' 'unzip' 'patchelf')
+# The engine is not a build-time dependency and not a hard runtime one either:
+# the app runs fine with a manually-supplied binary path, and the engine may be
+# sing-box instead of xray. optdepends is the honest category.
+optdepends=('xray-core: default engine'
+            'sing-box: alternative engine, required for TUN mode')
+source=("git+https://github.com/Manixpcshot/Naxlo-Two.git#tag=v${pkgver}")
+sha256sums=('SKIP')   # set after the first tagged release; SKIP is for -dev flows only
+
+# The engine binary that ships inside the package, so a fresh install works with
+# no network. Build-time only; never committed to git.
+_fetch_engine() {
+  local a=amd64
+  [[ "$CARCH" == "aarch64" ]] && a=arm64
+  ./scripts/fetch_engine.sh --engine xray --os linux --arch "$a" || {
+    echo "==> could not fetch xray; building without a bundled engine"
+    echo "    (install the 'xray-core' package or set the binary path in Settings)"
+  }
+}
+
+build() {
+  cd "$srcdir/naxlo-two/app"
+  _fetch_engine
+  ./scripts/bootstrap_platforms.sh linux || \
+    bash ../scripts/bootstrap_platforms.sh linux
+  flutter pub get
+  flutter build linux --release
+}
+
+check() {
+  cd "$srcdir/naxlo-two/app"
+  dart format --output=none --set-exit-if-changed --line-length 110 lib >/dev/null || true
+  flutter analyze
+  flutter test
+}
+
+package() {
+  cd "$srcdir/naxlo-two"
+  local bundle="app/build/linux/x64/release/bundle"
+  [[ "$CARCH" == "aarch64" ]] && bundle="app/build/linux/arm64/release/bundle"
+
+  install -Dm644 app/LICENSE "$pkgdir/usr/share/licenses/naxlo-two/LICENSE" 2>/dev/null || true
+  install -Dm644 packaging/linux/naxlo-two.desktop \
+    "$pkgdir/usr/share/applications/naxlo-two.desktop"
+
+  # /opt for the bundle: it is a directory tree (executable + lib/ + data/), and
+  # Flutter's Linux runner resolves `data/flutter_assets` relative to the
+  # executable, so it cannot be split across /usr/bin and /usr/lib.
+  cp -a "$bundle/." "$pkgdir/opt/naxlo-two/" 2>/dev/null || {
+    install -d "$pkgdir/opt/naxlo-two"
+    cp -a "$bundle/." "$pkgdir/opt/naxlo-two/"
+  }
+
+  cat > "$pkgdir/usr/bin/naxlo-two" <<'LAUNCH'
+#!/bin/sh
+exec /opt/naxlo-two/naxlo_two "$@"
+LAUNCH
+  chmod 755 "$pkgdir/usr/bin/naxlo-two"
+
+  # TUN needs privileges on the *engine*, not on the UI. setcap in package() is
+  # preserved by pacman because it is part of the file metadata; if the target
+  # filesystem has user_xattr disabled this silently does nothing, which is why
+  # the .desktop does not promise TUN works.
+  for bin in xray sing-box; do
+    if [[ -f "$pkgdir/opt/naxlo-two/$bin" ]] && command -v setcap >/dev/null 2>&1; then
+      setcap cap_net_admin,cap_net_raw=eip "$pkgdir/opt/naxlo-two/$bin" || true
+    fi
+  done
+}

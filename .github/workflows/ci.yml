@@ -1,0 +1,352 @@
+name: CI
+
+# Every push and every pull request gets the same treatment: the pure-Dart core
+# is analyzed and tested on the Dart VM (fast, no Flutter download), and the app
+# is analyzed and widget-tested. The split is deliberate — `dart test` for the
+# ranking math runs in seconds, so failures point at the layer that broke instead
+# of at "the flutter job timed out".
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  flutter-version: "3.24.5"
+  line-length: "110"
+
+jobs:
+  core:
+    name: naxlo_core · analyze + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/naxlo_core
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      - name: Formatting
+        # Informational, not blocking: the formatter's opinion about a 500-line
+        # widget build is worth seeing but should never be the reason a
+        # behavioural fix waits a day. Flip this to a hard failure once the tree
+        # has been formatted once and kept that way.
+        run: |
+          if ! dart format --output=none --set-exit-if-changed --line-length 110 lib test; then
+            echo "::warning title=dart format::naxlo_core is not formatted; run 'dart format --line-length 110 packages/naxlo_core'"
+          fi
+
+      # Failing step logs are one click away and, more importantly, invisible in
+      # a PR review. `report` turns each analyzer/test error into a check
+      # annotation so the message shows up inline in the diff and in the Checks
+      # API, and also copies it into the job summary.
+      - name: Analyze
+        run: |
+          # No flag here: `dart analyze` has no --no-fatal-infos (only
+          # --fatal-infos, off by default), so infos are already non-fatal and
+          # warnings/errors still gate. Passing a non-existent flag kills the step
+          # before it analyses anything.
+          if dart analyze > analyze.log 2>&1; then
+            echo "analyze clean"
+          else
+            bash ../../scripts/annotate_log.sh analyze.log --max 5
+            { echo '### dart analyze (naxlo_core)'; echo '```'; tail -c 20000 analyze.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Test
+        run: |
+          if dart test -r expanded --concurrency 4 > test.log 2>&1; then
+            tail -5 test.log
+          else
+            bash ../../scripts/annotate_log.sh test.log --max 6
+            { echo '### dart test (naxlo_core)'; echo '```'; tail -c 20000 test.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            tail -40 test.log
+            exit 1
+          fi
+
+  app:
+    name: app · analyze + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      # The repo does not vendor app/{android,ios,linux,macos,windows}; `dart
+      # test` for the core needs none of it, but `flutter test` compiles the
+      # plugin registrant and wants a linux/ folder for target resolution.
+      - name: Generate platform scaffolding
+        run: bash ../scripts/bootstrap_platforms.sh linux
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: |
+          # --no-fatal-infos: this repo's lint list is a quality bar, not a build
+          # gate; `flutter analyze` exits 1 on *any* issue, so 70 `prefer_const`
+          # nits would block a release as hard as a type error. Errors and warnings
+          # stay fatal. The full count is printed either way.
+          if flutter analyze --no-fatal-infos > analyze.log 2>&1; then
+            echo "analyze clean"
+          else
+            bash ../scripts/annotate_log.sh analyze.log --max 5 \
+              --grep '(^|[^[:alnum:]_])(error|warning)([^[:alnum:]_]|$)'
+            { echo '### flutter analyze (app)'; echo '```'; tail -c 20000 analyze.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            tail -60 analyze.log
+            exit 1
+          fi
+
+      - name: Test
+        run: |
+          if flutter test -r expanded > test.log 2>&1; then
+            tail -5 test.log
+          else
+            bash ../scripts/annotate_log.sh test.log --max 6 --ctx 14
+            { echo '### flutter test (app)'; echo '```'; tail -c 20000 test.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            tail -50 test.log
+            exit 1
+          fi
+
+      - name: Formatting
+        continue-on-error: true
+        run: dart format --output=none --set-exit-if-changed --line-length 110 lib test
+
+  # The config builders are the one place where an invented JSON key does not
+  # throw a Dart error — it silently produces a config the engine refuses to
+  # load, at the user's first connect. So the configs generated by the real
+  # builders are fed to the real `xray test` / `sing-box check` here.
+  #
+  # Advisory for now: it depends on GitHub release *assets* being reachable and
+  # on upstream not renaming an archive. Once three consecutive runs are green,
+  # delete `continue-on-error`.
+  manifest-and-config:
+    name: release manifest + config smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate the release manifest
+        run: |
+          jq -e '
+            .app == "naxlo_two"
+            and (.windows.stable.version | type == "string")
+            and (.linux | has("stable"))
+            and (.macos | has("stable"))
+          ' release > /dev/null
+          echo "release manifest ok ($(jq '.filenum' release) assets listed)"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      # Two steps, both blocking. While they were one step with
+      # continue-on-error, a failed engine *download* aborted the step before the
+      # verification ever ran, and the job still went green: the config check that
+      # "passed" in that round checked nothing. A skipped verification has to look
+      # different from a passing one, which is also why the script itself now
+      # reports accepted/skipped/rejected separately.
+      - name: Fetch engines for config verification
+        run: |
+          if ! bash scripts/fetch_engine.sh --engine both --os linux --arch amd64 > fetch.log 2>&1; then
+            bash scripts/annotate_log.sh fetch.log --max 2 --level failure
+            tail -20 fetch.log
+            exit 1
+          fi
+          tail -8 fetch.log
+
+      - name: Verify generated configs against real engines
+        run: |
+          if ! bash scripts/verify-engine-config.sh > verify.log 2>&1; then
+            bash scripts/annotate_log.sh verify.log --max 4 \
+              --grep 'FAIL|REJECT|error|Error|unexpected|unknown|missing|SKIP'
+            tail -40 verify.log
+            exit 1
+          fi
+          tail -12 verify.log
+
+  # The privacy promise in docs/PRIVACY.md is one careless import away from being
+  # false, so CI checks it. Note what this does *not* do: it must not grep for the
+  # English word "telemetry", because the app ships the sentence "No telemetry." as
+  # a UI string — a guard that fires on prose is a guard that gets deleted on the
+  # second week. It matches integration *shapes*: package imports, SDK init calls
+  # and known analytics hosts.
+  privacy-guards:
+    name: no telemetry, no surprise sockets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No analytics or crash-reporting SDKs
+        run: |
+          status=0
+          check() { # label, pattern
+            if hits="$(grep -rnE "$2" app/lib packages/*/lib 2>/dev/null)"; then
+              echo "::error::$1 — found:"
+              echo "$hits" | head -10
+              status=1
+            else
+              echo "ok: $1"
+            fi
+          }
+          check "analytics/crash SDK import" "^[[:space:]]*(import|export)[[:space:]]+['\"]package:(sentry|firebase|firebase_analytics|google_mobile_ads|posthog|matomo|amplitude|mixpanel|segment|bugsnag|appcenter|new_relic)"
+          check "analytics SDK call shape" "(Sentry\.init|Firebase\.initializeApp|Posthog|Mixpanel\.track|Analytics\.logEvent|Bugsnag\.start|startNewSession)"
+          check "analytics or tracking host" "(sentry\.io|google-analytics\.com|googletagmanager|posthog\.com|matomo\.|analytics\.quinn|api\.amplitude\.com|device-metrics\.us)"
+          check "install identifier being generated" "(installId|deviceId|machineId|analyticsId|uuid\.v4\(\)[[:space:]]*.*track)"
+          exit $status
+
+      - name: Network call sites are only the expected ones
+        run: |
+          found="$(grep -rlE "HttpClient\(|Socket\.connect|SecureSocket\.connect|RawSocket" app/lib packages/*/lib | sort | tr '\n' ' ')"
+          for f in $found; do
+            case "$f" in
+              app/lib/state/probe_service.dart|app/lib/state/subscription_service.dart|app/lib/state/update_service.dart) ;;
+              *) echo "::error::unexpected network call site: $f (see docs/PRIVACY.md — say which of the three it belongs to in the PR)"; exit 1 ;;
+            esac
+          done
+          echo "network call sites ok: $found"
+
+      - name: Process spawn sites are only the engine and the proxy
+        run: |
+          found="$(grep -rlE "Process\.(start|run)" app/lib packages/*/lib | sort | tr '\n' ' ')"
+          for f in $found; do
+            case "$f" in
+              app/lib/state/engine_service.dart|app/lib/state/system_proxy.dart|app/lib/state/update_service.dart|app/lib/state/engine_locator.dart) ;;
+              *) echo "::error::unexpected process spawn site: $f"; exit 1 ;;
+            esac
+          done
+          echo "process spawn sites ok: $found"
+
+      - name: No key material committed, manifest uses https
+        run: |
+          if grep -rnE "BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY" . --exclude-dir=.git >/dev/null 2>&1; then
+            echo "::error::private key material committed"
+            exit 1
+          fi
+          for p in windows macos linux android; do
+            jq -e --arg p "$p" '.[$p].stable | if . == {} then true else (.link | test("^https://")) end' release > /dev/null \
+              || { echo "::error::$p manifest download link is not https"; exit 1; }
+          done
+          echo "manifest links are https"
+
+  # Proves each platform toolchain can at least produce a bundle, so a release
+  # job does not discover six hours later that the Linux GTK deps moved.
+  cross-compile:
+    name: build smoke (${{ matrix.target }})
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-latest
+            build: flutter build linux --release
+          - target: apk-arm64
+            os: ubuntu-latest
+            build: flutter build apk --release --target-platform android-arm64 --split-per-abi
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'apk-arm64'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.flutter-version }}
+          cache: true
+
+      - name: Generate platform scaffolding
+        run: |
+          case "${{ matrix.target }}" in
+            linux-*) bash ../scripts/bootstrap_platforms.sh linux ;;
+            apk-*)   bash ../scripts/bootstrap_platforms.sh android ;;
+          esac
+
+      - name: Fetch engine binaries
+        # Surface the reason in a check annotation: without it this step is a red
+        # dot and a bare "exit code 1" in the log.
+        #
+        # Non-blocking on purpose. This job's contract is "the platform toolchain
+        # can still build a bundle"; the engine binary is not an input to
+        # `flutter build linux`/`apk`, so an unreachable release asset or a digest
+        # we cannot yet pin must not hide a real build regression. The release
+        # pipeline fetches the same binaries and *does* fail on them, because that
+        # is the only build whose output ships.
+        continue-on-error: true
+        run: |
+          if ! bash ../scripts/fetch_engine.sh --engine xray > fetch.log 2>&1; then
+            bash ../scripts/annotate_log.sh fetch.log --level warning --max 2
+            exit 1
+          fi
+          tail -12 fetch.log
+
+      - name: Install Linux desktop toolchain
+        # `flutter build linux` is not a Dart-only build: runner images ship
+        # cmake/ninja/clang but *not* the GTK dev package, so CMake dies in
+        # `pkg_check_modules` with "required packages were not found: gtk+-3.0"
+        # long before anything of ours is compiled. Documented in
+        # docs/PACKAGING.md, and `packaging/linux/build_packages.sh` names the same
+        # set so a local failure says the same sentence as this step.
+        if: matrix.target == 'linux-x64'
+        run: |
+          sudo apt-get update -qq
+          # Exactly what CMake's pkg_check_modules in flutter's linux/ runner needs.
+          # (`appindicator3-0.1` is not a valid package name on this image and apt
+          # exits 100 on the whole transaction, which looked like a build failure.)
+          sudo apt-get install -y -qq --no-install-recommends \
+            libgtk-3-dev liblzma-dev libunwind-dev
+          pkg-config --modversion gtk+-3.0
+
+      - name: Build
+        run: |
+          # `flutter build` on a fresh scaffold fails for boring reasons (missing
+          # plugin registrant, no linux/ dir yet), and a bare stack of SDK output in
+          # a log nobody opens hides it. Same annotation path as the tests.
+          if ! (set -e; ${{ matrix.build }}) > build.log 2>&1; then
+            # Broad pattern: a `flutter build` that dies before the compiler starts
+            # (missing GTK deps, no linux/ directory, a tool not on PATH) writes
+            # "command not found"/"Required is not satisfied", none of which contain
+            # the word "error".
+            bash ../scripts/annotate_log.sh build.log --max 4 \
+              --grep 'rror|arning|ailed|not found|No such file|Required|missing|Exception|CMake|ninja|clang|denied'
+            tail -30 build.log
+            exit 1
+          fi
+          tail -6 build.log
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-${{ matrix.target }}
+          path: |
+            app/build/linux/x64/release/bundle/**
+            app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: warn
+          retention-days: 7
