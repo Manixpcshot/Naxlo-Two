@@ -140,7 +140,14 @@ procedure DeinitializeUninstall();
 var
   Server: String;
 begin
-  if RegQueryValue(HKEY_CURRENT_USER, RegPath, 'ProxyServer', Server) then
+  ; There is no generic RegQueryValue in the [Code] API - only the typed readers
+  ; (RegQueryStringValue / RegQueryDWordValue / RegQueryMultiStringValue /
+  ; RegQueryBinaryValue). Asking for the unknown one is a compile error at column 6,
+  ; which is what killed every Windows installer this pipeline produced: ISCC exits 1
+  ; with the reason on a line the step output does not carry, so it took a captured log
+  ; and an annotation to see it at all. ProxyServer is a REG_SZ, so the string reader is
+  ; also the correct one, not merely the one that compiles.
+  if RegQueryStringValue(HKEY_CURRENT_USER, RegPath, 'ProxyServer', Server) then
   begin
     if (Pos('127.0.0.1:20151', Server) > 0) or (Pos('127.0.0.1:20152', Server) > 0) then
     begin
