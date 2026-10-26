@@ -72,7 +72,11 @@ jobs:
             echo "    Run scripts/set_version.sh $ver and merge it first."
             exit 1
           fi
-          grep -q "kNaxloVersion = '$ver'" packages/naxlo_core/lib/src/version.dart || {
+          # Either quote style: set_version.sh writes version.dart with double
+          # quotes and this grep looked for single ones, so preflight failed on a
+          # correct tree and no platform job ever started — a tag published with no
+          # installers and no annotation to explain it.
+          grep -qE "kNaxloVersion = [\"']$ver[\"']" packages/naxlo_core/lib/src/version.dart || {
             echo "::error::packages/naxlo_core/lib/src/version.dart is not at $ver"
             exit 1
           }
@@ -114,6 +118,8 @@ jobs:
             arch: amd64
           - os: macos
             arch: amd64
+          - os: macos
+            arch: arm64
     steps:
       - uses: actions/checkout@v4
       - name: Fetch
@@ -219,6 +225,18 @@ jobs:
           bash ../scripts/bootstrap_platforms.sh windows
           flutter pub get
           flutter build windows --release
+          # Name the missing input here, because ISCC's only complaint is a bare
+          # "no files found matching" for one of its two Sources.
+          test -f build/windows/x64/runner/Release/naxlo_two.exe || {
+            echo "::error::flutter build windows produced no bundle at build/windows/x64/runner/Release"
+            find build -maxdepth 5 -name 'naxlo_two.exe' 2>/dev/null || true
+            exit 1
+          }
+          test -f assets/engine/windows-amd64/xray/xray.exe || {
+            echo "::error::the xray engine artifact was not unpacked under app/assets/engine"
+            ls -R assets/engine 2>/dev/null | head -30 || true
+            exit 1
+          }
 
       - name: Installer (Inno Setup)
         shell: pwsh
@@ -232,7 +250,8 @@ jobs:
           # the difference between a green job and an empty release.
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
             /DMyAppVersion=$env:VERSION `
-            /DEngineBinary=app\assets\engine\windows-amd64\xray\xray.exe `
+            /DEngineBinary=assets\engine\windows-amd64\xray\xray.exe `
+            /DSingBoxBinary=assets\engine\windows-amd64\sing-box\sing-box.exe `
             packaging\windows\naxlo-two.iss
           New-Item -ItemType Directory -Force -Path app\dist | Out-Null
           Copy-Item packaging\windows\installer\Output\setup-Naxlo.x64.exe app\dist\ -ErrorAction SilentlyContinue
@@ -259,10 +278,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `engine_arch` is the upstream spelling of the same silicon: flutter says
+          # x86_64, the engine releases say amd64. Sharing one engine artifact across
+          # both legs dropped an Intel core inside the Apple Silicon app, which is a
+          # crash on first connect rather than a slow one.
           - arch: arm64
             runner: macos-14
+            engine_arch: arm64
           - arch: x86_64
             runner: macos-13
+            engine_arch: amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -274,7 +299,7 @@ jobs:
       - name: Unpack engine
         uses: actions/download-artifact@v4
         with:
-          name: engine-macos-amd64
+          name: engine-macos-${{ matrix.engine_arch }}
           path: app/assets/engine
 
       - name: Build
@@ -477,6 +502,10 @@ jobs:
   publish:
     name: create release + update manifest
     needs: [preflight, build-linux, build-windows, build-macos-arch, build-macos-universal, build-android]
+    # Publish what built, and name what did not. Requiring every platform meant one
+    # red runner (a dmg step, a signing hiccup) left the user with no download at
+    # all — including the Windows installer that had compiled fine.
+    if: always() && !cancelled() && needs.preflight.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -492,7 +521,13 @@ jobs:
       - name: Checksums
         working-directory: artifacts
         run: |
-          sha256sum ./* > SHA256SUMS.txt
+          shopt -s nullglob
+          files=(.*)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "::error::no platform job produced an artifact, so there is nothing to publish"
+            exit 1
+          fi
+          sha256sum "${files[@]}" > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Create or refresh the release
@@ -511,10 +546,18 @@ jobs:
             printf 'Engines bundled by this build: see `packaging/` notes. Installers are\n'
             printf 'sha256-summed in `SHA256SUMS.txt`; the in-app updater verifies before installing.\n\n'
             printf '### Install\n\n| Platform | File |\n| --- | --- |\n'
+            missing=""
             for f in setup-Naxlo.x64.exe setup-Naxlo.arm64.exe Naxlo.macOS.universal.dmg Naxlo.linux.x64.deb \
                      Naxlo.linux.x64.rpm Naxlo.linux.x64.pkg.tar.zst Naxlo.linux.x64.AppImage Naxlo.apk; do
-              [[ -f "artifacts/$f" ]] && printf '| %s | `%s` |\n' "${f%%.*}" "$f"
+              if [[ -f "artifacts/$f" ]]; then
+                printf '| %s | `%s` |\n' "${f%%.*}" "$f"
+              else
+                missing+=" $f"
+              fi
             done
+            if [[ -n "$missing" ]]; then
+              printf '\n_Not built in this run (that platform job is red; the rows above are what exists):%s_\n' "$missing"
+            fi
           } > body.md
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --notes-file body.md
@@ -531,7 +574,14 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           bash scripts/gen_release_manifest.sh "$TAG"
-          jq -e '.windows.stable.link and .linux.stable.link' release >/dev/null
+          # A link for every platform is the normal case, not a precondition: with a
+          # partial release the manifest legitimately has no macos entry, and a client
+          # reads a missing link as "nothing offered" rather than a broken checksum.
+          # Hard-failing here would throw away the assets that do exist.
+          if ! jq -e '.windows.stable.link and .linux.stable.link' release >/dev/null; then
+            echo "::warning::some platforms have no download link for $TAG (their job published no asset)"
+            jq -c '{win: (.windows.stable | has("link")), mac: (.macos.stable | has("link")), linux: (.linux.stable | has("link")), android: (.android.stable | has("link"))}' release
+          fi
 
       - name: Commit manifest
         run: |
