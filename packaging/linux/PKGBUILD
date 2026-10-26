@@ -15,7 +15,7 @@
 # produced, not what someone uploaded.
 pkgbase=naxlo-two
 pkgname=naxlo-two
-pkgver=0.2.9
+pkgver=0.2.10
 pkgrel=1
 pkgdesc="Proxy client for Xray-core and sing-box with configurable server ranking"
 arch=('x86_64' 'aarch64')
