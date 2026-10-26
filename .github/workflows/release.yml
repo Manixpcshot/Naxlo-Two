@@ -138,26 +138,56 @@ jobs:
             exit 1
           }
 
-      - uses: dart-lang/setup-dart@v1
-        if: steps.which.outputs.skip != 'true'
-      - name: Core tests
-        if: steps.which.outputs.skip != 'true'
-        working-directory: packages/naxlo_core
-        run: dart pub get && dart analyze && dart test
-
+      # Flutter first, then the standalone dart: both prepend to PATH, and with the
+      # order reversed `flutter` resolves a dart-sdk that is not its own — which fails
+      # somewhere inside `flutter test` with a message about the wrong SDK version and
+      # no hint that the cause is two steps above it.
       - uses: subosito/flutter-action@v2
         if: steps.which.outputs.skip != 'true'
         with:
           flutter-version: ${{ env.flutter-version }}
           cache: true
+      - uses: dart-lang/setup-dart@v1
+        if: steps.which.outputs.skip != 'true'
+
+      - name: Core tests
+        if: steps.which.outputs.skip != 'true'
+        working-directory: packages/naxlo_core
+        run: |
+          if { dart pub get && dart analyze && dart test; } > core.log 2>&1; then
+            tail -3 core.log
+          else
+            # Same rule as ci.yml: a release must never fail mute. Without the
+            # capture, the only thing a failed job says is `exit code 1`.
+            bash ../scripts/annotate_log.sh core.log --max 6 --ctx 14
+            { echo '### release preflight: naxlo_core'; echo '```'; tail -c 20000 core.log; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+            tail -40 core.log
+            exit 1
+          fi
+
       - name: App tests
         if: steps.which.outputs.skip != 'true'
         working-directory: app
         run: |
           bash ../scripts/bootstrap_platforms.sh linux
           flutter pub get
-          flutter analyze
-          flutter test
+          if flutter analyze --no-fatal-infos > analyze.log 2>&1; then
+            echo "analyze clean"
+          else
+            bash ../scripts/annotate_log.sh analyze.log --max 5 \
+              --grep '(^|[^[:alnum:]_])(error|warning)([^[:alnum:]_]|$)'
+            { echo '### release preflight: flutter analyze (app)'; echo '```'; tail -c 20000 analyze.log; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+            tail -60 analyze.log
+            exit 1
+          fi
+          if flutter test -r expanded > test.log 2>&1; then
+            tail -5 test.log
+          else
+            bash ../scripts/annotate_log.sh test.log --max 6 --ctx 14
+            { echo '### release preflight: flutter test (app)'; echo '```'; tail -c 20000 test.log; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+            tail -50 test.log
+            exit 1
+          fi
 
   # Engine binaries come from upstream releases rather than this repo, per
   # target, and are cached so re-running a failed job is not a re-download.
