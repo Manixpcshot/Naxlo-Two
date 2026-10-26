@@ -235,3 +235,36 @@ extension for any tunnel mode. `flutter build ios` after
   your build needs it, add it in your own release and read its terms.
 * Every artifact in a release has a line in `SHA256SUMS.txt`, and the manifest
   carries the digest of the one a given platform should install.
+
+## How a release happens (no manual step)
+
+`release after every update` is implemented as a chain, and the order matters:
+
+1. A merge to `main` runs **Auto release**: it reads the conventional-commit subjects
+   since the last tag, bumps `VERSION`, commits, pushes `vX.Y.Z`.
+2. That workflow finishing starts **Release** (`on: workflow_run`). It resolves the
+   highest `v*` tag — the one just created — and *every* job then checks out that tag's
+   tree, so the tag name, the `VERSION` file and `kNaxloVersion` are the same commit.
+   A plain `push: branches: [main]` trigger used to run concurrently with step 1 and
+   would resolve the *previous* tag, publishing a tree one release behind while all the
+   version checks still passed.
+3. `preflight` skips the whole thing when that release already has assets, so merging
+   does not rebuild the world. `publish` runs with `if: always()`: it uploads whatever
+   built, `sha256sum`s it, rewrites the root `release` manifest, and names in the
+   release body the platforms whose job was red.
+
+Skipped or failing is visible: build steps capture their logs and push the tail through
+`scripts/annotate_log.sh`, because a failed native-build step whose output goes only to
+the step log is unreadable from outside the Actions UI, and that blindness cost several
+releases that looked like "exit code 1" and nothing else.
+
+Current limits, stated where they can be found rather than discovered by download:
+
+- Linux is x64 only — there is no Linux arm64 Flutter SDK for the pinned 3.24.5, so the
+  arm64 engine legs exist but the app leg does not.
+- macOS ships the arm64 slice, named `Naxlo.macOS.arm64.dmg`. There is no Intel runner
+  left to request and `flutter build macos` has no cross-arch flag, so the second slice
+  needs a direct `xcodebuild -arch x86_64`; until then nothing is labelled universal.
+- `setup-Naxlo.arm64.exe` builds only when `include_arm` is checked in a manual run
+  (it needs an ARM64 Windows runner), which is why the default table lists it as
+  not built.
