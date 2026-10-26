@@ -132,7 +132,7 @@ abstract final class AppTheme {
       pageTransitionsTheme: PageTransitionsTheme(
         builders: <TargetPlatform, PageTransitionsBuilder>{
           for (final TargetPlatform platform in TargetPlatform.values)
-            platform: const FadeForwardsPageTransitionsBuilder(),
+            platform: const FadeUpwardsPageTransitionsBuilder(),
         },
       ),
       iconButtonTheme: IconButtonThemeData(
@@ -161,9 +161,8 @@ abstract final class AppTheme {
       progressIndicatorTheme: ProgressIndicatorThemeData(
         color: scheme.secondary,
         linearTrackColor: Palette.scoreTrack,
-        circularStrokeCap: StrokeCap.round,
       ),
-      dialogTheme: DialogThemeData(
+      dialogTheme: DialogTheme(
         backgroundColor: brightness == Brightness.dark ? Palette.ink1 : Palette.paper,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),

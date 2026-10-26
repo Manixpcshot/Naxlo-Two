@@ -649,7 +649,7 @@ class _ConnectButton extends StatelessWidget {
             foregroundColor: connected ? const Color(0xFF06251A) : Colors.white,
             icon: AnimatedSwitcher(
               duration: Motion.time(context, Motion.quick),
-              transitionBuilder: (Widget child, Animation<double> animation) => RotateTransition(
+              transitionBuilder: (Widget child, Animation<double> animation) => RotationTransition(
                 turns: Tween<double>(begin: 0, end: 0.25).animate(animation),
                 alignment: Alignment.center,
                 child: FadeTransition(opacity: animation, child: child),

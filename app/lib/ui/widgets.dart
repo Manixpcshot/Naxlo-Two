@@ -112,6 +112,7 @@ class Panel extends StatefulWidget {
 
 class _PanelState extends State<Panel> {
   bool _hover = false;
+  bool _down = false;
 
   bool get _interactive => widget.onTap != null;
 
@@ -124,8 +125,11 @@ class _PanelState extends State<Panel> {
 
     return MouseRegion(
       cursor: _interactive ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: _interactive ? (PointerEnterEvent _) => setState(() => _hover = true) : null,
-      onExit: _interactive ? (PointerExitEvent _) => setState(() => _hover = false) : null,
+      onEnter: _interactive ? (_) => setState(() => _hover = true) : null,
+      onExit: _interactive ? (_) => setState(() {
+            _hover = false;
+            _down = false;
+          }) : null,
       child: Material(
         type: MaterialType.transparency,
         child: Ink(
@@ -158,11 +162,19 @@ class _PanelState extends State<Panel> {
           ),
           child: InkWell(
             onTap: widget.onTap,
+            // The sink lives here rather than in a wrapper: an outer GestureDetector
+            // with `HitTestBehavior.opaque` over a tappable surface takes the tap
+            // before the InkWell sees it, and the card then looks interactive while
+            // being inert.
+            onTapDown: _interactive ? (TapDownDetails _) => setState(() => _down = true) : null,
+            onTapUp: _interactive ? (TapUpDetails _) => setState(() => _down = false) : null,
+            onTapCancel: _interactive ? () => setState(() => _down = false) : null,
             borderRadius: BorderRadius.circular(Palette.radius),
             hoverColor: Colors.transparent,
             splashColor: tint.withOpacity(0.16),
             highlightColor: tint.withOpacity(0.08),
             child: _HoverLift(
+              sunk: _down,
               lifted: _hover && _interactive,
               child: Padding(
                 padding: widget.padding,
@@ -182,9 +194,10 @@ class _PanelState extends State<Panel> {
 /// and the whole point of the state is that the frame gets lighter while the
 /// surface moves.
 class _HoverLift extends StatelessWidget {
-  const _HoverLift({required this.lifted, required this.child});
+  const _HoverLift({required this.lifted, required this.sunk, required this.child});
 
   final bool lifted;
+  final bool sunk;
   final Widget child;
 
   @override
@@ -194,7 +207,16 @@ class _HoverLift extends StatelessWidget {
       duration: Motion.time(context, Motion.quick),
       curve: Motion.enter,
       transform: Matrix4.translationValues(0, lifted ? -0.6 : 0, 0),
-      child: child,
+      // A 0.6% sink on press is felt, not seen; anything larger makes the text inside
+      // the card shimmer while it is being read. `AnimatedScale` rather than a second
+      // matrix: `scaleByDouble` is a vector_math method whose name has moved between
+      // versions, and this is not a thing worth breaking a release over.
+      child: AnimatedScale(
+        scale: sunk ? 0.994 : 1,
+        duration: Motion.time(context, Motion.micro),
+        curve: Motion.press,
+        child: child,
+      ),
     );
   }
 }
