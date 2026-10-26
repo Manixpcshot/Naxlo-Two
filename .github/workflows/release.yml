@@ -294,7 +294,17 @@ jobs:
         env:
           VERSION: ${{ needs.preflight.outputs.version }}
           ARCH: ${{ matrix.arch }}
-        run: bash ../packaging/linux/build_packages.sh
+        # A green `flutter build linux` then a red packager reads like a broken script;
+        # it is usually a missing tool (`zstd`, `patchelf`) failing in the first seconds.
+        run: |
+          if bash ../packaging/linux/build_packages.sh > packages.log 2>&1; then
+            ls -l dist
+          else
+            bash ../scripts/annotate_log.sh packages.log --max 4 --ctx 14
+            { echo '### linux packaging'; echo '```'; tail -c 20000 packages.log; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+            tail -50 packages.log
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -383,11 +393,26 @@ jobs:
           # in packaging\windows\installer\Output — checking for it there (rather
           # than trusting ISCC's exit code, which is 0 even for a missing icon) is
           # the difference between a green job and an empty release.
+          # MyAppArch is not cosmetic: it chooses the [Files] source directory
+          # (`build\windows\{#MyAppArch}\runner\Release`) as well as the output name,
+          # so relying on the .iss default makes the job and the script agree only by
+          # coincidence. And capture ISCC's output: it writes "no files found matching
+          # pattern" to stdout, and a failed Windows step's own log is often not
+          # retrievable at all — annotations are, which is what found the CMake bug.
+
+      - name: Explain a failed installer
+        if: failure()
+        run: bash "$GITHUB_WORKSPACE/scripts/annotate_log.sh" inno.log --max 5 --ctx 12
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            /DMyAppArch=x64 `
             /DMyAppVersion=$env:VERSION `
             /DEngineBinary=assets\engine\windows-amd64\xray\xray.exe `
             /DSingBoxBinary=assets\engine\windows-amd64\sing-box\sing-box.exe `
-            packaging\windows\naxlo-two.iss
+            packaging\windows\naxlo-two.iss *> inno.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content inno.log -Tail 40
+            exit 1
+          }
           New-Item -ItemType Directory -Force -Path app\dist | Out-Null
           Copy-Item packaging\windows\installer\Output\setup-Naxlo.x64.exe app\dist\ -ErrorAction SilentlyContinue
           if (-not (Test-Path app\dist\setup-Naxlo.x64.exe)) {
@@ -460,7 +485,14 @@ jobs:
           # anything compiles. The Intel slice needs a direct `xcodebuild -arch` call,
           # which is not verified here — so this leg builds arm64 and the pack step
           # names what a dmg actually contains.
-          flutter build macos --release
+          if flutter build macos --release > build.log 2>&1; then
+            tail -3 build.log
+          else
+            bash ../scripts/annotate_log.sh build.log --max 4 --ctx 14
+            { echo '### macos build'; echo '```'; tail -c 20000 build.log; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+            tail -60 build.log
+            exit 1
+          fi
           mkdir -p dist
           ditto -c -k --sequesterRsrc build/macosx/Build/Products/Release/naxlo_two.app \
             "dist/naxlo_two-$ARCH.app.zip"
