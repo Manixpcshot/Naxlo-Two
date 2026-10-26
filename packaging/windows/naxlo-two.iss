@@ -35,7 +35,7 @@
 ; unconditional #define let this literal win, so every installer reported a version
 ; that had nothing to do with what was tagged. The comment lines stay above the
 ; directive: a `;` at the end of a #define line is not a comment to the preprocessor.
-#define MyAppVersion "0.2.2"
+#define MyAppVersion "0.2.3"
 #endif
 #define MyAppPublisher "Naxlo"
 #define MyAppURL "https://github.com/Manixpcshot/Naxlo-Two"
