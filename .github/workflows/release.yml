@@ -399,71 +399,64 @@ jobs:
         env:
           VERSION: ${{ needs.preflight.outputs.version }}
         run: |
-          choco install innosetup -y --no-progress
-          # OutputDir in the .iss is relative to the script, so the installer lands
-          # in packaging\windows\installer\Output — checking for it there (rather
-          # than trusting ISCC's exit code, which is 0 even for a missing icon) is
-          # the difference between a green job and an empty release.
-          # MyAppArch is not cosmetic: it chooses the [Files] source directory
-          # (`build\windows\{#MyAppArch}\runner\Release`) as well as the output name,
-          # so relying on the .iss default makes the job and the script agree only by
-          # coincidence. And capture ISCC's output: it writes "no files found matching
-          # pattern" to stdout, and a failed Windows step's own log is often not
-          # retrievable at all — annotations are, which is what found the CMake bug.
-
-      - name: Explain a failed installer
-        if: failure()
-        run: bash "$GITHUB_WORKSPACE/scripts/annotate_log.sh" inno.log --max 5 --ctx 12
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+          # Continue-on-error is PowerShell's default, and it is what let three runs of
+          # this job be green while compiling nothing: a red line in the log, a green
+          # step, an empty release. Terminating is the only honest mode here.
+          $ErrorActionPreference = 'Stop'
+          $found = Get-Command iscc.exe -ErrorAction SilentlyContinue
+          if (-not $found) {
+            choco install innosetup -y --no-progress | Out-Null
+          }
+          # Resolve the binary instead of hardcoding it: the image may already ship one
+          # on PATH, and a fixed `${env:ProgramFiles(x86)}` path only matches choco's.
+          $iscc = if ($found) { $found.Source } else { "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) {
+            Write-Error "no ISCC.exe: not on PATH and not at $iscc"
+            exit 1
+          }
+          # /O and /F beat the .iss and take absolute paths. OutputDir inside the script
+          # is relative to the script, so the installer landed in
+          # packaging\windows\installer\Output while the copy looked under a different
+          # base — which is why an annotation could honestly report `app\dist (absent)`
+          # from a job that had just printed a passing Test-Path. Naming where the file
+          # must appear, in the same command that compiles it, removes that class of bug.
+          $out = Join-Path $env:GITHUB_WORKSPACE 'app\dist'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          # MyAppArch is not cosmetic: it selects the [Files] source directory
+          # (`build\windows\{#MyAppArch}\runner\Release`) as well as the output name.
+          & $iscc `
             /DMyAppArch=x64 `
             /DMyAppVersion=$env:VERSION `
             /DEngineBinary=assets\engine\windows-amd64\xray\xray.exe `
             /DSingBoxBinary=assets\engine\windows-amd64\sing-box\sing-box.exe `
-            packaging\windows\naxlo-two.iss *> inno.log
+            /O"$out" /F"setup-Naxlo.x64" `
+            "$env:GITHUB_WORKSPACE\packaging\windows\naxlo-two.iss" *> inno.log
           if ($LASTEXITCODE -ne 0) {
+            # ISCC reports a missing [Files] source as a bare "no files found matching
+            # pattern" on stdout; a failed step's own log is frequently not retrievable
+            # from outside the Actions UI, so the tail goes out twice - once here, once
+            # as an annotation from the next step.
             Get-Content inno.log -Tail 40
             exit 1
           }
-          New-Item -ItemType Directory -Force -Path app\dist | Out-Null
-          Copy-Item packaging\windows\installer\Output\setup-Naxlo.x64.exe app\dist\ -ErrorAction SilentlyContinue
-          if (-not (Test-Path app\dist\setup-Naxlo.x64.exe)) {
-            Write-Error "Inno Setup produced no installer under packaging\windows\installer\Output"
+          Get-ChildItem $out | Format-Table Name, Length
+          if (-not (Test-Path (Join-Path $out 'setup-Naxlo.x64.exe'))) {
+            Write-Error "ISCC exited 0 but wrote no setup-Naxlo.x64.exe into $out"
             exit 1
           }
-          Get-ChildItem app\dist | Format-Table Name, Length
+
+      - name: Explain a failed installer
+        if: failure()
+        run: bash "$GITHUB_WORKSPACE/scripts/annotate_log.sh" inno.log --max 5 --ctx 12
 
       - uses: actions/upload-artifact@v4
         with:
           name: naxlo-windows-x64
-          # A literal file, not a glob and not a directory. `app/dist/*.exe` and
-          # `app/dist` both answered "No files were found" from a job whose own
-          # Test-Path guard had just passed on the same runner, so the installer must
-          # not depend on how @actions/glob walks Windows paths — the exe is the one
-          # artifact this project is judged by.
-          path: app\dist\setup-Naxlo.x64.exe
+          # A literal path, and a glob-free one: this upload has already failed twice
+          # over patterns that matched a file the step above had just verified.
+          path: app/dist/setup-Naxlo.x64.exe
           if-no-files-found: error
 
-      - name: Explain a missing installer
-        if: failure()
-        shell: pwsh
-        run: |
-          # The only channel that reliably arrives from a failed Windows job is an
-          # annotation, so the directory listing goes through ::error:: rather than
-          # step output.
-          $lines = @("workspace=$PWD")
-          foreach ($d in @("app\dist", "packaging\windows\installer\Output")) {
-            if (Test-Path $d) {
-              $lines += "--- $d"
-              $lines += (Get-ChildItem -Recurse -File $d | ForEach-Object { "$($_.FullName) $($_.Length)B" })
-            } else {
-              $lines += "--- $d (absent)"
-            }
-          }
-          Write-Host "::error::missing installer artifact: $($lines -join ' | ')"
-
-  # Two native builds, then `lipo` merges them: Flutter has no cross-arch flag
-  # for macOS, and an arm64-only or x64-only dmg is the classic "works on my Mac"
-  # bug for a universal binary claim.
   build-macos-arch:
     if: needs.preflight.outputs.skip != 'true'
     needs: [preflight, engines]
@@ -766,11 +759,25 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Flatten the artifact tree
+        run: |
+          # upload-artifact v4 stores each match with its path relative to the
+          # workspace, and merge-multiple reproduces that: `artifacts/app/dist/x.deb`.
+          # What follows wants file names at one level - `sha256sum` stops on a
+          # directory, `gh release upload artifacts/*` would try to upload a folder,
+          # and the install table probes `artifacts/$f`. So collapse the tree, keeping
+          # the first copy if two legs ever produce the same name.
+          find artifacts -mindepth 2 -type f -exec mv -n {} artifacts/ \; 2>/dev/null || true
+          find artifacts -mindepth 1 -type d -empty -delete || true
+          ls -l artifacts || true
+
       - name: Checksums
         working-directory: artifacts
         run: |
           shopt -s nullglob
-          files=(.*)
+          # `*`, not `.*`: nullglob already handles an empty directory, and the
+          # previous form globbed dotfiles, hashed a directory and died in sha256sum.
+          files=(*)
           if [[ ${#files[@]} -eq 0 ]]; then
             echo "::error::no platform job produced an artifact, so there is nothing to publish"
             exit 1
