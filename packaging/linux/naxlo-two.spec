@@ -9,7 +9,7 @@
 # Placeholders substituted by the builder: @VERSION@ @ARCH@ @DESC@
 
 Name:           naxlo-two
-Version:        0.2.6
+Version:        0.2.7
 Release:        1%{?dist}
 Summary:        @DESC@
 License:        MIT
