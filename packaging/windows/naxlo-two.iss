@@ -1,7 +1,13 @@
 ; Naxlo Two — Inno Setup script (Windows x64 installer)
 ;
 ;   & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=0.1.0 ^
-;       /DEngineBinary=app\assets\engine\windows-amd64\xray\xray.exe packaging\windows\naxlo-two.iss
+;       /DEngineBinary=assets\engine\windows-amd64\xray\xray.exe packaging\windows\naxlo-two.iss
+;
+; Paths in [Files] are relative to SourceDir (itself relative to this script), i.e.
+; to the Flutter app directory — NOT to the repo root. Written repo-root-relative
+; they resolved to packaging\windows\app\assets\... and matched nothing, which ISCC
+; reports as a bare "no files found matching": the installer step cannot fail louder,
+; so the paths are anchored once, here, instead.
 ;
 ; Kept deliberately plain: no bundled runtime, no service, no scheduled task.
 ; A proxy client that installs a service is a much bigger promise than this
@@ -24,7 +30,13 @@
 #endif
 
 #define MyAppName "Naxlo Two"
+#ifndef MyAppVersion
+; A default, not an override. CI passes /DMyAppVersion from the tag, and an
+; unconditional #define let this literal win, so every installer reported a version
+; that had nothing to do with what was tagged. The comment lines stay above the
+; directive: a `;` at the end of a #define line is not a comment to the preprocessor.
 #define MyAppVersion "0.2.1"
+#endif
 #define MyAppPublisher "Naxlo"
 #define MyAppURL "https://github.com/Manixpcshot/Naxlo-Two"
 #define MyAppExeName "naxlo_two.exe"
@@ -32,9 +44,22 @@
 
 #ifndef EngineBinary
   #if MyAppArch == "arm64"
-    #define EngineBinary "app\assets\engine\windows-arm64\xray\xray.exe"
+    #define EngineBinary "assets\engine\windows-arm64\xray\xray.exe"
   #else
-    #define EngineBinary "app\assets\engine\windows-amd64\xray\xray.exe"
+    #define EngineBinary "assets\engine\windows-amd64\xray\xray.exe"
+  #endif
+#endif
+
+; The app ships two engines (the ranking is engine-agnostic), so the installer has to
+; carry both or a user who picks sing-box in settings gets "binary not found" on first
+; connect. skipifsourcedoesntexist keeps a single-engine build possible; it does not
+; silently produce an installer with no engine, because the [Files] entry above has no
+; such flag and fails the build if the xray payload is missing.
+#ifndef SingBoxBinary
+  #if MyAppArch == "arm64"
+    #define SingBoxBinary "assets\engine\windows-arm64\sing-box\sing-box.exe"
+  #else
+    #define SingBoxBinary "assets\engine\windows-amd64\sing-box\sing-box.exe"
   #endif
 #endif
 
@@ -51,6 +76,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 OutputBaseFilename=setup-Naxlo.{#MyAppArch}
+SourceDir=..\..\app
 OutputDir=installer\Output
 SetupIconFile=
 UninstallDisplayIcon={app}\{#MyAppExeName}
