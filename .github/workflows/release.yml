@@ -447,6 +447,10 @@ jobs:
 
       - name: Explain a failed installer
         if: failure()
+        # Explicit bash: without it the default shell on a Windows runner is pwsh, where
+        # this line is a syntax accident rather than a command - the diagnostic step that
+        # existed to explain a failure was itself failing, and told us nothing.
+        shell: bash
         run: bash "$GITHUB_WORKSPACE/scripts/annotate_log.sh" inno.log --max 5 --ctx 12
 
       - uses: actions/upload-artifact@v4
@@ -788,7 +792,7 @@ jobs:
       - name: Create or refresh the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG: ${{ needs.preflight.outputs.tag }}
           VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           notes="$(gh api "repos/{owner}/{repo}/releases/tags/$TAG" --jq .body 2>/dev/null || true)"
@@ -826,7 +830,7 @@ jobs:
       - name: Regenerate the update manifest
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG: ${{ needs.preflight.outputs.tag }}
         run: |
           bash scripts/gen_release_manifest.sh "$TAG"
           # A link for every platform is the normal case, not a precondition: with a
