@@ -20,14 +20,23 @@ name: Release
 on:
   push:
     tags: ["v*"]
-    # A merge to main releases the newest tag that still has no assets. This exists
-    # because a tag pushed by another workflow's `GITHUB_TOKEN` (which is how
-    # auto-release.yml tags) fires no `push: tags` event at all — GitHub drops
-    # workflow-triggering events created with that token, and `workflow_dispatch`
-    # from inside a run is refused outright. Without this trigger, a release the bot
-    # created stays a changelog with nothing to download forever, which is what
-    # happened to v0.2.0, v0.2.1 and v0.2.2.
-    branches: [main]
+  # A release the bot tagged used to be a changelog with nothing to download forever:
+  # a tag pushed with another workflow's GITHUB_TOKEN fires no `push: tags` event
+  # (GitHub drops workflow-triggering events created with that token), and
+  # `workflow_dispatch` from inside a run is refused outright.
+  #
+  # `branches: [main]` was the first answer to that and it is quietly wrong: on a
+  # merge, this workflow and auto-release.yml start at the same moment, so preflight
+  # resolves the *previous* tag and every job builds that older tree — one release
+  # behind, forever. That is why a fixed `sed` line and a fixed upload glob came back
+  # from CI still broken: CI was right, the checkout was a commit behind it.
+  #
+  # `workflow_run` fires after Auto release has finished, so the highest tag is the
+  # one just created, and the tag's tree is main's tree. The assets guard in preflight
+  # stays, because a run that owns nothing still has to say so instead of rebuilding.
+  workflow_run:
+    workflows: ["Auto release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -82,8 +91,10 @@ jobs:
           # Three ways in, one answer: the tag this run publishes.
           #  * workflow_dispatch with tag=...  - a human republishing a release;
           #  * a `v*` tag push                 - a human `git push --tags`;
-          #  * a push to main                  - the highest tag, and only if that
+          #  * after Auto release              - the highest tag, and only if that
           #    release still has no assets (otherwise every merge rebuilds the world).
+          #    The tag must come from the *bot's* run, not from before it: the trigger
+          #    is what keeps this run's tree and the tag's tree the same commit.
           tag="${{ github.event.inputs.tag }}"
           if [[ -z "$tag" ]]; then
             if [[ "$GITHUB_REF_NAME" == v* ]]; then
