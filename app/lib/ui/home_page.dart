@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
 import '../theme/palette.dart';
+import 'motion.dart';
 import 'servers_page.dart';
 import 'widgets.dart';
 
@@ -39,7 +40,10 @@ class HomePage extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
         children: <Widget>[
           if (app.updateAvailable != null) const _UpdateBanner(),
-          _StatusHero(status: app.status, detail: app.statusDetail),
+          // Each block arrives 42ms after the one above it. That is not decoration: the
+          // hero is the thing the user came to check, so it lands first and the rest
+          // follow in reading order, which is also the order they become true.
+          _reveal(0, _StatusHero(status: app.status, detail: app.statusDetail)),
           const SizedBox(height: 16),
           if (profile == null)
             Panel(
@@ -54,13 +58,13 @@ class HomePage extends StatelessWidget {
               ),
             )
           else ...<Widget>[
-            _ActiveNodeCard(app: app, l10n: l10n),
+            _reveal(1, _ActiveNodeCard(app: app, l10n: l10n)),
             const SizedBox(height: 16),
-            _TrafficCard(app: app, l10n: l10n),
+            _reveal(2, _TrafficCard(app: app, l10n: l10n)),
             const SizedBox(height: 16),
-            _CandidatesPreview(app: app, l10n: l10n),
+            _reveal(3, _CandidatesPreview(app: app, l10n: l10n)),
             const SizedBox(height: 16),
-            _EngineCard(app: app, l10n: l10n),
+            _reveal(4, _EngineCard(app: app, l10n: l10n)),
           ],
         ],
       ),
@@ -69,6 +73,11 @@ class HomePage extends StatelessWidget {
           : _ConnectButton(app: app, l10n: l10n),
     );
   }
+}
+
+/// One item of the page's entrance cascade.
+Widget _reveal(int index, Widget child) {
+  return FadeSlideIn(delay: Motion.cascade(index), duration: Motion.base, child: child);
 }
 
 Future<void> _showImportDialog(BuildContext context, AppState app) async {
@@ -122,49 +131,143 @@ class _StatusHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = NaxloLocalizations.of(context);
-    final theme = Theme.of(context);
+    final NaxloLocalizations l10n = NaxloLocalizations.of(context);
+    final ThemeData theme = Theme.of(context);
+    final bool dark = theme.brightness == Brightness.dark;
     final (Color color, IconData icon, String label) = switch (status) {
       TunnelStatus.connected => (Palette.mint, Icons.shield_rounded, l10n.t('status.connected')),
       TunnelStatus.connecting => (Palette.cyan, Icons.sync_rounded, l10n.t('status.connecting')),
       TunnelStatus.failed => (Palette.rose, Icons.shield_outlined, l10n.t('status.error')),
       TunnelStatus.disconnected => (Palette.mutedInk, Icons.shield_outlined, l10n.t('status.disconnected')),
     };
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: LinearGradient(
-          colors: <Color>[color.withOpacity(0.20), color.withOpacity(0.05)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    final bool busy = status == TunnelStatus.connecting;
+    // The ring is always *determinate* - 0 empty, 1 full, and while the tunnel is
+    // being built it sweeps with the pulse. An indeterminate spinner here would be a
+    // controller that never settles (which `pumpAndSettle` would wait on forever), and
+    // in real life it keeps a compositor frame alive on a laptop on battery for a
+    // state that lasts two seconds.
+    return AuroraTint(
+      active: status == TunnelStatus.connected || busy,
+      borderRadius: Palette.radius,
+      colors: <Color>[color.withOpacity(dark ? 0.22 : 0.16), color.withOpacity(dark ? 0.05 : 0.34)],
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(Palette.radius),
+          border: Border.all(color: color.withOpacity(0.36)),
         ),
-        border: Border.all(color: color.withOpacity(0.35)),
-      ),
-      child: Row(
-        children: <Widget>[
-          Icon(icon, color: color, size: 34),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(label, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                if (detail.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      detail,
-                      style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+        child: Row(
+          children: <Widget>[
+            SizedBox(
+              width: 52,
+              height: 52,
+              child: LivePulse(
+                active: busy,
+                period: const Duration(milliseconds: 1400),
+                builder: (BuildContext context, double t) {
+                  return TweenAnimationBuilder<double>(
+                    tween: Tween<double>(
+                      end: switch (status) {
+                        TunnelStatus.connected => 1.0,
+                        TunnelStatus.connecting => t,
+                        TunnelStatus.failed => 0.0,
+                        TunnelStatus.disconnected => 0.0,
+                      },
                     ),
-                  ),
-              ],
+                    duration: Motion.time(context, Motion.quick),
+                    curve: Motion.enter,
+                    builder: (BuildContext context, double value, Widget? child) => Stack(
+                      alignment: Alignment.center,
+                      children: <Widget>[
+                        SizedBox(
+                          width: 52,
+                          height: 52,
+                          child: CircularProgressIndicator(
+                            value: value,
+                            strokeWidth: 2.6,
+                            backgroundColor: Palette.scoreTrack,
+                            valueColor: AlwaysStoppedAnimation<Color>(color),
+                          ),
+                        ),
+                        child!,
+                      ],
+                    ),
+                    child: Icon(icon, color: color, size: 22),
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  SwapText(
+                    text: label,
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.4),
+                  ),
+                  if (detail.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: SwapText(
+                        text: detail,
+                        maxLines: 2,
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor, height: 1.25),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            // Traffic marks: three dots running along the wire while the tunnel is
+            // up. Motion is the clearest possible "it is doing something" for a
+            // proxy, and unlike a spinner it stops the instant nothing is.
+            SizedBox(
+              width: 34,
+              child: LivePulse(
+                active: status == TunnelStatus.connected || busy,
+                period: const Duration(milliseconds: 1700),
+                builder: (BuildContext context, double t) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: <Widget>[
+                      for (int i = 0; i < 3; i++)
+                        _WireDot(t: (t + i / 3) % 1, colour: color, flowing: busy),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One dot on the wire.
+class _WireDot extends StatelessWidget {
+  const _WireDot({required this.t, required this.colour, required this.flowing});
+
+  final double t;
+  final Color colour;
+  final bool flowing;
+
+  @override
+  Widget build(BuildContext context) {
+    // While connecting the dots travel and stay lit; once the tunnel is up they
+    // fade behind the head of the line, which reads as a stream rather than as
+    // three blinking lights.
+    final double alpha = flowing ? 0.55 + 0.45 * (1 - t) : (1.0 - t).clamp(0.12, 1.0).toDouble();
+    return Transform.translate(
+      offset: Offset(t * 7 - 3.5, 0),
+      child: Container(
+        width: 5,
+        height: 5,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: colour.withOpacity(alpha),
+        ),
       ),
     );
   }
@@ -314,7 +417,11 @@ class _TrafficCard extends StatelessWidget {
             child: KvColumn(rows: <Widget>[
               KvRow(key_: '↑', value: _bytes(app.uplinkBytes)),
               KvRow(key_: '↓', value: _bytes(app.downlinkBytes)),
-              KvRow(key_: l10n.t('label.throughput'), value: '${app.throughputKbps.toStringAsFixed(0)} kbit/s'),
+              KvRow(
+                key_: l10n.t('label.throughput'),
+                value: '${app.throughputKbps.toStringAsFixed(0)} kbit/s',
+                emphasise: true,
+              ),
               KvRow(
                 key_: '≈',
                 value: app.isConnected ? 'estimated from engine log' : 'idle',
@@ -510,21 +617,58 @@ class _ConnectButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
     if (app.isBusy) {
+      // Only reachable while an engine start is in flight, which is also the only
+      // time an infinite animation is allowed to exist in this app.
       return const Padding(
         padding: EdgeInsets.all(24),
         child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.4)),
       );
     }
-    final connected = app.isConnected;
-    return FloatingActionButton.extended(
-      onPressed: () => connected ? app.disconnect() : app.connect(),
-      icon: Icon(connected ? Icons.link_off_rounded : Icons.link_rounded),
-      label: Text(connected ? l10n.t('action.disconnect') : l10n.t('action.connect')),
+    final bool connected = app.isConnected;
+    final Color glow = connected ? Palette.mint : theme.colorScheme.primary;
+    return LivePulse(
+      active: connected,
+      period: const Duration(milliseconds: 2400),
+      builder: (BuildContext context, double t) {
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: glow.withOpacity(connected ? 0.32 + 0.20 * t : 0.24),
+                blurRadius: connected ? 22 + 14 * t : 16,
+                spreadRadius: -3,
+              ),
+            ],
+          ),
+          child: FloatingActionButton.extended(
+            onPressed: () => connected ? app.disconnect() : app.connect(),
+            backgroundColor: connected ? Palette.mint : theme.colorScheme.primary,
+            foregroundColor: connected ? const Color(0xFF06251A) : Colors.white,
+            icon: AnimatedSwitcher(
+              duration: Motion.time(context, Motion.quick),
+              transitionBuilder: (Widget child, Animation<double> animation) => RotateTransition(
+                turns: Tween<double>(begin: 0, end: 0.25).animate(animation),
+                alignment: Alignment.center,
+                child: FadeTransition(opacity: animation, child: child),
+              ),
+              child: Icon(
+                connected ? Icons.link_off_rounded : Icons.link_rounded,
+                key: ValueKey<bool>(connected),
+              ),
+            ),
+            label: SwapText(
+              text: connected ? l10n.t('action.disconnect') : l10n.t('action.connect'),
+              style: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.1),
+            ),
+          ),
+        );
+      },
     );
   }
 }
-
 class _UpdateBanner extends StatelessWidget {
   const _UpdateBanner();
 

@@ -30,6 +30,24 @@ abstract final class Palette {
   static const Color scoreTrack = Color(0x1FFFFFFF);
   static const Color hairline = Color(0x22FFFFFF);
 
+  /// One corner radius for every surface, so "a card" is a single decision in
+  /// the app rather than six that drift a pixel apart.
+  static const double radius = 18;
+
+  /// The brand gradient, shared by the mark, the active rank and the section
+  /// ticks. Keeping it here rather than inline is what stops three of those
+  /// disagreeing about where cyan starts.
+  static const LinearGradient accentGradient = LinearGradient(
+    colors: <Color>[violet, cyan],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// Neutral tint for an unremarkable panel. Violet-grey rather than pure grey
+  /// so an idle card still sits in the same light as an active one; the alpha
+  /// component is discarded by callers (`withOpacity`), the hue is not.
+  static Color glass(bool dark) => dark ? const Color(0xFF8C86BF) : const Color(0xFFFFFFFF);
+
   /// Latency band colours, matched to the thresholds used by the ranker so the
   /// badge and the score never disagree with each other.
   static Color latency(double ms) {

@@ -60,9 +60,13 @@ abstract final class AppTheme {
       // No `cardTheme` here: that property's type was renamed across SDK
       // versions, and every surface in this app is a custom [Panel], so a global
       // Card theme would be dead configuration that only breaks on an SDK bump.
-      listTileTheme: const ListTileThemeData(
+      listTileTheme: ListTileThemeData(
+        // Selected-tile tint lives here rather than on each row so the rail, the
+        // server list and the settings rows cannot disagree about what "current"
+        // looks like. It reads `scheme`, so this theme is no longer const - and a
+        // const-annotated one here fails to compile, not merely lints.
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       dividerTheme: const DividerThemeData(thickness: 1, space: 1),
       navigationRailTheme: NavigationRailThemeData(
@@ -113,6 +117,63 @@ abstract final class AppTheme {
         bodyColor: scheme.onSurface,
         displayColor: scheme.onSurface,
         decorationColor: scheme.onSurface,
+      ).copyWith(
+        titleLarge: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: -0.4),
+        titleMedium: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+        labelSmall: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.1),
+      ),
+      textSelectionTheme: TextSelectionThemeData(
+        selectionColor: Palette.violet.withOpacity(0.32),
+        cursorColor: Palette.cyan,
+      ),
+      // One motion language for pushed routes as well as for the shell's own page
+      // swap. Without this, a dialog fades while a tab slides, and the app feels
+      // assembled from two toolkits.
+      pageTransitionsTheme: PageTransitionsTheme(
+        builders: <TargetPlatform, PageTransitionsBuilder>{
+          for (final TargetPlatform platform in TargetPlatform.values)
+            platform: const FadeForwardsPageTransitionsBuilder(),
+        },
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        // The stock hover state is a grey wash that reads as "disabled" on a dark
+        // surface; an accent tint reads as "this one is live".
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+            if (states.contains(WidgetState.disabled)) return null;
+            if (states.contains(WidgetState.hovered)) return scheme.primary.withOpacity(0.16);
+            if (states.contains(WidgetState.pressed)) return scheme.primary.withOpacity(0.24);
+            return null;
+          }),
+          iconColor: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+            if (states.contains(WidgetState.hovered)) return scheme.primary;
+            return null;
+          }),
+        ),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: Palette.violet,
+        foregroundColor: Colors.white,
+        elevation: 5,
+        highlightElevation: 12,
+        shape: const StadiumBorder(),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: scheme.secondary,
+        linearTrackColor: Palette.scoreTrack,
+        circularStrokeCap: StrokeCap.round,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: brightness == Brightness.dark ? Palette.ink1 : Palette.paper,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      chipTheme: ChipThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        side: const BorderSide(color: Palette.hairline),
       ),
     );
   }
