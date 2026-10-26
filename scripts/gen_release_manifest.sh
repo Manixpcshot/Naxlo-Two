@@ -40,7 +40,7 @@ body="$(echo "$release" | jq -r '(.body // "") | .[0:1200]')"
 # for externally-linked ones. Empty -> the client treats the artifact as
 # unverified and will not auto-install it. That asymmetry is intentional.
 assets="$(echo "$release" | jq -c '[.assets[] | {name, url, size, digest}]')"
-filenum="$(echo "$assets" | jq 'length')"
+filnum="$(echo "$assets" | jq 'length')"
 generated="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 old_blocks='{}'
@@ -118,4 +118,4 @@ if ! jq -e '(.windows | has("stable")) and (.linux | has("stable")) and (.macos 
 fi
 
 mv "$tmp" "$out"
-echo "  wrote $out from $filenum asset(s) -> $version"
+echo "  wrote $out from $filnum asset(s) -> $version"
