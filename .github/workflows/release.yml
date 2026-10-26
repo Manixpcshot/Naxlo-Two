@@ -310,7 +310,11 @@ jobs:
     if: needs.preflight.outputs.skip != 'true'
     needs: [preflight, engines]
     name: windows x64
-    runs-on: windows-latest
+    # windows-latest is Server 2025, whose image has no VS2019: flutter asked
+    # CMake for `Visual Studio 16 2019`, got "could not find any instance of Visual
+    # Studio" 65ms in, and the installer never existed. Pin the image with the
+    # toolset this Flutter version asks for.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
         with:
@@ -330,6 +334,11 @@ jobs:
       - name: Build
         working-directory: app
         shell: bash
+        env:
+          # CMake reads this when the caller passes no -G; if flutter does pass one,
+          # its value wins and this is inert. Either way the generator names a product
+          # that exists on the runner, instead of inheriting a fallback guess.
+          CMAKE_GENERATOR: Visual Studio 17 2022
         run: |
           bash ../scripts/bootstrap_platforms.sh windows
           flutter pub get
@@ -417,9 +426,10 @@ jobs:
           - arch: arm64
             runner: macos-14
             engine_arch: arm64
-          - arch: x86_64
-            runner: macos-14
-            engine_arch: amd64
+          # No x86_64 leg: there is no Intel macOS runner left to request (macos-13 is
+          # retired, and a job with no possible runner queues forever), and building the
+          # second slice on an arm64 host takes xcodebuild directly. One honest slice beats
+          # a dmg labelled "universal" that contains one architecture.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -445,9 +455,12 @@ jobs:
           # an x86_64 request on an arm64 runner silently builds arm64 instead, and the
           # "universal" merge two steps later would lipo two identical binaries into a
           # dmg that claims to be universal.
-          flutter build macos --release \
-            --xcode-build-parameter=ONLY_ACTIVE_ARCH=NO \
-            --xcode-build-parameter=ARCHS=$ARCH
+          # `--xcode-build-parameter` is a `flutter build ios` flag: passing it to
+          # `flutter build macos` is a usage error (exit 64) that kills the job before
+          # anything compiles. The Intel slice needs a direct `xcodebuild -arch` call,
+          # which is not verified here — so this leg builds arm64 and the pack step
+          # names what a dmg actually contains.
+          flutter build macos --release
           mkdir -p dist
           ditto -c -k --sequesterRsrc build/macosx/Build/Products/Release/naxlo_two.app \
             "dist/naxlo_two-$ARCH.app.zip"
@@ -489,6 +502,23 @@ jobs:
           ls -l dist
           rm -rf merge && mkdir -p merge/a merge/b
           ditto -x -k "dist/${APP_NAME%.app}-arm64.app.zip" merge/a
+          if [[ ! -f "dist/${APP_NAME%.app}-x86_64.app.zip" ]]; then
+            # One slice: package what exists, under a name that says so. Shipping
+            # `Naxlo.macOS.universal.dmg` around an arm64-only bundle turns a label into a
+            # week of issue triage; the release notes list universal as not built, which is
+            # the truth. Re-signing is still required — codesign state does not survive a
+            # ditto/cp round trip on a modified bundle.
+            echo "::notice title=arm64 only::no x86_64 slice in this run; packing Naxlo.macOS.arm64.dmg"
+            cp -a "merge/a/$APP_NAME" "merge/one"
+            codesign --remove-signature "merge/one" 2>/dev/null || true
+            codesign --force --deep --sign - "merge/one"
+            mkdir -p dmgroot && cp -a "merge/one" "dmgroot/$APP_NAME"
+            ln -s /Applications "dmgroot/Applications"
+            hdiutil create -volname "Naxlo Two" -srcfolder dmgroot -ov -format UDZO \
+              "dist/Naxlo.macOS.arm64.dmg"
+            shasum -a 256 "dist/Naxlo.macOS.arm64.dmg"
+            exit 0
+          fi
           ditto -x -k "dist/${APP_NAME%.app}-x86_64.app.zip" merge/b
           # The zips were made with `ditto -c -k` on the .app itself, so the
           # archive root is the bundle; normalise both to merge/<x>/naxlo_two.app.
