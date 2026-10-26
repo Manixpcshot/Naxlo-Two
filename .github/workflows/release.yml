@@ -403,11 +403,16 @@ jobs:
           # x86_64, the engine releases say amd64. Sharing one engine artifact across
           # both legs dropped an Intel core inside the Apple Silicon app, which is a
           # crash on first connect rather than a slow one.
+          # Both legs run on the same arm64 image and cross-target with ARCHS:
+          # `macos-13` (the only Intel image) has been retired, and a job whose runner
+          # does not exist never fails — it queues forever. That held the `concurrency`
+          # group open and blocked every later release run with zero jobs started,
+          # which is what "pending" for twenty minutes actually meant.
           - arch: arm64
             runner: macos-14
             engine_arch: arm64
           - arch: x86_64
-            runner: macos-13
+            runner: macos-14
             engine_arch: amd64
     steps:
       - uses: actions/checkout@v4
@@ -430,7 +435,13 @@ jobs:
         run: |
           bash ../scripts/bootstrap_platforms.sh macos
           flutter pub get
-          flutter build macos --release
+          # The slice is chosen by Xcode, not by the host: WITHOUT ONLY_ACTIVE_ARCH=NO
+          # an x86_64 request on an arm64 runner silently builds arm64 instead, and the
+          # "universal" merge two steps later would lipo two identical binaries into a
+          # dmg that claims to be universal.
+          flutter build macos --release \
+            --xcode-build-parameter=ONLY_ACTIVE_ARCH=NO \
+            --xcode-build-parameter=ARCHS=$ARCH
           mkdir -p dist
           ditto -c -k --sequesterRsrc build/macosx/Build/Products/Release/naxlo_two.app \
             "dist/naxlo_two-$ARCH.app.zip"
