@@ -20,6 +20,14 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    # A merge to main releases the newest tag that still has no assets. This exists
+    # because a tag pushed by another workflow's `GITHUB_TOKEN` (which is how
+    # auto-release.yml tags) fires no `push: tags` event at all — GitHub drops
+    # workflow-triggering events created with that token, and `workflow_dispatch`
+    # from inside a run is refused outright. Without this trigger, a release the bot
+    # created stays a changelog with nothing to download forever, which is what
+    # happened to v0.2.0, v0.2.1 and v0.2.2.
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -49,50 +57,101 @@ jobs:
     name: version + tests gate
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.v.outputs.version }}
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.which.outputs.tag }}
+      # 'true' means this run owns no unreleased tag, so every other job is skipped
+      # and a plain merge costs one fast job instead of an hour of native builds.
+      skip: ${{ steps.which.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Resolve tag and version
-        id: v
+      - name: Resolve which release this run owns
+        id: which
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # Three ways in, one answer: the tag this run publishes.
+          #  * workflow_dispatch with tag=...  - a human republishing a release;
+          #  * a `v*` tag push                 - a human `git push --tags`;
+          #  * a push to main                  - the highest tag, and only if that
+          #    release still has no assets (otherwise every merge rebuilds the world).
           tag="${{ github.event.inputs.tag }}"
-          [[ -z "$tag" ]] && tag="${GITHUB_REF_NAME}"
+          if [[ -z "$tag" ]]; then
+            if [[ "$GITHUB_REF_NAME" == v* ]]; then
+              tag="$GITHUB_REF_NAME"
+            else
+              tag="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+              if [[ -n "$tag" ]]; then
+                n="$(gh release view "$tag" --json assets --jq '.assets | length' 2>/dev/null || echo 0)"
+                if [[ "$n" != "0" ]]; then
+                  echo "$tag already has $n asset(s); nothing for this run to publish"
+                  echo "skip=true" >>"$GITHUB_OUTPUT"
+                  exit 0
+                fi
+              fi
+            fi
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "nothing is tagged yet, so this run has no release to own"
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::'$tag' is not a vMAJOR.MINOR.PATCH tag"
             exit 1
           fi
-          ver="${tag#v}"
           echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "skip=false" >>"$GITHUB_OUTPUT"
+          echo "this run publishes $tag"
+
+      - name: Check out the tag
+        if: steps.which.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          # The tag's tree, never the trigger's: a merge-to-main run would otherwise
+          # publish the merge commit under the previous tag's name, which is a
+          # different program carrying the same version string.
+          ref: ${{ steps.which.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Tag and source must agree on the version
+        if: steps.which.outputs.skip != 'true'
+        id: ver
+        run: |
+          ver="${{ steps.which.outputs.tag }}"
+          ver="${ver#v}"
           echo "version=$ver" >>"$GITHUB_OUTPUT"
           if [[ "$(tr -d '[:space:]' < VERSION)" != "$ver" ]]; then
-            echo "::error::VERSION says $(cat VERSION) but the tag says $ver."
+            echo "::error::VERSION at ${{ steps.which.outputs.tag }} says $(cat VERSION), the tag says $ver."
             echo "    Run scripts/set_version.sh $ver and merge it first."
             exit 1
           fi
-          # Either quote style: set_version.sh writes version.dart with double
-          # quotes and this grep looked for single ones, so preflight failed on a
-          # correct tree and no platform job ever started — a tag published with no
-          # installers and no annotation to explain it.
+          # Either quote style, because set_version.sh writes double quotes and this
+          # grep looked for single ones: preflight failed on a correct tree and no
+          # platform job ever started, which is how three tags were published with no
+          # installers and not one annotation to explain it.
           grep -qE "kNaxloVersion = [\"']$ver[\"']" packages/naxlo_core/lib/src/version.dart || {
             echo "::error::packages/naxlo_core/lib/src/version.dart is not at $ver"
             exit 1
           }
-        env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
 
       - uses: dart-lang/setup-dart@v1
+        if: steps.which.outputs.skip != 'true'
       - name: Core tests
+        if: steps.which.outputs.skip != 'true'
         working-directory: packages/naxlo_core
         run: dart pub get && dart analyze && dart test
 
       - uses: subosito/flutter-action@v2
+        if: steps.which.outputs.skip != 'true'
         with:
           flutter-version: ${{ env.flutter-version }}
           cache: true
       - name: App tests
+        if: steps.which.outputs.skip != 'true'
         working-directory: app
         run: |
           bash ../scripts/bootstrap_platforms.sh linux
@@ -104,6 +163,7 @@ jobs:
   # target, and are cached so re-running a failed job is not a re-download.
   engines:
     name: engine binaries
+    if: needs.preflight.outputs.skip != 'true'
     needs: preflight
     runs-on: ubuntu-latest
     strategy:
@@ -122,6 +182,8 @@ jobs:
             arch: arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
       - name: Fetch
         env:
           XRAY_VERSION: ${{ vars.XRAY_VERSION }}
@@ -141,6 +203,7 @@ jobs:
           retention-days: 5
 
   build-linux:
+    if: needs.preflight.outputs.skip != 'true'
     needs: [preflight, engines]
     name: linux ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
@@ -159,6 +222,8 @@ jobs:
             pub_arch: arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -201,11 +266,14 @@ jobs:
           if-no-files-found: error
 
   build-windows:
+    if: needs.preflight.outputs.skip != 'true'
     needs: [preflight, engines]
     name: windows x64
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -271,6 +339,7 @@ jobs:
   # for macOS, and an arm64-only or x64-only dmg is the classic "works on my Mac"
   # bug for a universal binary claim.
   build-macos-arch:
+    if: needs.preflight.outputs.skip != 'true'
     needs: [preflight, engines]
     name: macos ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
@@ -290,6 +359,8 @@ jobs:
             engine_arch: amd64
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -326,10 +397,13 @@ jobs:
   # binary has a broken signature the moment it is merged), then hdiutil.
   build-macos-universal:
     name: macos universal dmg
+    if: needs.preflight.outputs.skip != 'true' && needs.build-macos-arch.result == 'success'
     needs: [preflight, build-macos-arch]
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -394,11 +468,13 @@ jobs:
   # download silently stops existing while the README still links to it.
   build-windows-arm:
     name: windows arm64
-    if: ${{ github.event.inputs.include_arm == 'true' }}
+    if: ${{ github.event.inputs.include_arm == 'true' && needs.preflight.outputs.skip != 'true' }}
     needs: [preflight, engines]
     runs-on: [windows-11-arm]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -432,11 +508,14 @@ jobs:
           if-no-files-found: error
 
   build-android:
+    if: needs.preflight.outputs.skip != 'true'
     needs: preflight
     name: android
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.tag }}
 
       - uses: actions/setup-java@v4
         with:
@@ -501,11 +580,11 @@ jobs:
 
   publish:
     name: create release + update manifest
+    if: always() && !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.skip != 'true'
     needs: [preflight, build-linux, build-windows, build-macos-arch, build-macos-universal, build-android]
     # Publish what built, and name what did not. Requiring every platform meant one
     # red runner (a dmg step, a signing hiccup) left the user with no download at
     # all — including the Windows installer that had compiled fine.
-    if: always() && !cancelled() && needs.preflight.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
