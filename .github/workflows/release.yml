@@ -832,7 +832,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.preflight.outputs.tag }}
         run: |
-          bash scripts/gen_release_manifest.sh "$TAG"
+          # Capture, like every other step that can only fail with an exit code: this
+          # one writes the file the in-app updater reads, so a silent failure here means
+          # every installed client keeps pointing at the previous release.
+          if bash scripts/gen_release_manifest.sh "$TAG" > manifest.log 2>&1; then
+            tail -3 manifest.log
+          else
+            bash scripts/annotate_log.sh manifest.log --max 3 --ctx 14
+            { echo '### update manifest'; echo '```'; tail -c 12000 manifest.log; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+            tail -30 manifest.log
+            exit 1
+          fi
           # A link for every platform is the normal case, not a precondition: with a
           # partial release the manifest legitimately has no macos entry, and a client
           # reads a missing link as "nothing offered" rather than a broken checksum.
