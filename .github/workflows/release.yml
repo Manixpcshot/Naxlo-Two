@@ -245,11 +245,12 @@ jobs:
             runner: ubuntu-latest
             pub_arch: amd64
             dbgsym: ""
-          - arch: arm64
-            # GitHub's ARM Linux runners are free for public repos; using them
-            # beats cross-compiling Flutter's Linux embedder by hand.
-            runner: ubuntu-24.04-arm
-            pub_arch: arm64
+          # No arm64 leg here: `subosito/flutter-action` has nothing to install,
+          # because Flutter publishes no Linux arm64 SDK for the pinned 3.24.x — the
+          # leg died inside the action, before a single line of ours ran. The linux/arm64
+          # *engine* is still fetched (an arm64 user can drop it in by hand), and the
+          # arm64 package names stay absent from the release notes and manifest rather
+          # than pointing at x64 files. Restore this when the upstream SDK exists.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -263,7 +264,11 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev rpm
+          # `zstd` for .pkg.tar.zst (tar --zstd shells out to it), `patchelf` +
+          # `desktop-file-utils` for the AppImage's linuxdeploy plugins. A missing one of
+          # these fails the *packaging* step after a successful flutter build, which reads
+          # like a bug in build_packages.sh rather than a missing tool on the runner.
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev rpm zstd patchelf desktop-file-utils
 
       - name: Unpack engine
         uses: actions/download-artifact@v4
@@ -335,6 +340,23 @@ jobs:
             ls -R assets/engine 2>/dev/null | head -30 || true
             exit 1
           }
+
+      - name: Explain a failed build
+        if: failure()
+        shell: bash
+        working-directory: app
+        run: |
+          # A red "Build" step here is otherwise unreadable from outside the Actions UI:
+          # the job log is not retrievable through the API, so all that reaches the person
+          # debugging is `exit code 1`. Re-run the same commands into a file and push its
+          # tail through annotate_log.sh — annotations do arrive; this is what ci.yml's
+          # test steps already do for the same reason.
+          set +e
+          { bash ../scripts/bootstrap_platforms.sh windows; flutter pub get; flutter build windows --release; } > rerun.log 2>&1
+          code=$?
+          bash ../scripts/annotate_log.sh rerun.log --max 6 --ctx 20 || true
+          echo "re-run exit code: $code"
+          tail -40 rerun.log
 
       - name: Installer (Inno Setup)
         shell: pwsh
@@ -578,6 +600,10 @@ jobs:
         run: |
           if [[ -z "${KEYSTORE:-}" ]]; then
             echo "::notice title=unsigned::ANDROID_KEYSTORE_BASE64 not set; APKs are debug-signed"
+            # dist/ is created by the *next* step, so this line — the only thing the
+            # no-keys path does, i.e. the path every fork and every user build takes —
+            # failed the whole job with "No such file or directory".
+            mkdir -p dist
             echo "unsigned" > dist/signing.txt
           else
             echo "$KEYSTORE" | base64 -d > naxlo-release.keystore
