@@ -435,13 +435,31 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: naxlo-windows-x64
-          # The directory, not a glob: the job reached this step with
-          # `app\dist\setup-Naxlo.x64.exe` present (its own Test-Path guard is above),
-          # and `app/dist/*.exe` still reported "No files were found" — a glob that
-          # depends on how @actions/glob walks Windows separators has no business being
-          # the last thing between a build and a release.
-          path: app/dist
+          # A literal file, not a glob and not a directory. `app/dist/*.exe` and
+          # `app/dist` both answered "No files were found" from a job whose own
+          # Test-Path guard had just passed on the same runner, so the installer must
+          # not depend on how @actions/glob walks Windows paths — the exe is the one
+          # artifact this project is judged by.
+          path: app\dist\setup-Naxlo.x64.exe
           if-no-files-found: error
+
+      - name: Explain a missing installer
+        if: failure()
+        shell: pwsh
+        run: |
+          # The only channel that reliably arrives from a failed Windows job is an
+          # annotation, so the directory listing goes through ::error:: rather than
+          # step output.
+          $lines = @("workspace=$PWD")
+          foreach ($d in @("app\dist", "packaging\windows\installer\Output")) {
+            if (Test-Path $d) {
+              $lines += "--- $d"
+              $lines += (Get-ChildItem -Recurse -File $d | ForEach-Object { "$($_.FullName) $($_.Length)B" })
+            } else {
+              $lines += "--- $d (absent)"
+            }
+          }
+          Write-Host "::error::missing installer artifact: $($lines -join ' | ')"
 
   # Two native builds, then `lipo` merges them: Flutter has no cross-arch flag
   # for macOS, and an arm64-only or x64-only dmg is the classic "works on my Mac"
