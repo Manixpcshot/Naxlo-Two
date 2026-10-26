@@ -424,7 +424,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: naxlo-windows-x64
-          path: app/dist/*.exe
+          # The directory, not a glob: the job reached this step with
+          # `app\dist\setup-Naxlo.x64.exe` present (its own Test-Path guard is above),
+          # and `app/dist/*.exe` still reported "No files were found" — a glob that
+          # depends on how @actions/glob walks Windows separators has no business being
+          # the last thing between a build and a release.
+          path: app/dist
           if-no-files-found: error
 
   # Two native builds, then `lipo` merges them: Flutter has no cross-arch flag

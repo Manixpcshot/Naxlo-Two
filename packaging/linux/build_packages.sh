@@ -142,7 +142,13 @@ if command -p rpmbuild >/dev/null 2>&1 || command -v rpmbuild >/dev/null 2>&1; t
   rpm_root="$root/build/rpmbuild-$arch"
   mkdir -p "$rpm_root"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
   ( cd "$stage" && tar --exclude='./DEBIAN' -czf "$rpm_root/SOURCES/tree.tar.gz" . )
-  sed -e "s/@VERSION@/$version/g" -e "s/@ARCH@/$pkg_archRpm/g" -e "s/@DESC@/$desc/" \
+  # The description contains '/' ("Xray-core / sing-box"), which closed the s/// command
+  # mid-string: `sed: -e expression #3, char 51: unknown option to \`s\'` — thrown after
+  # the .deb was already written, so the leg died with no rpm and a line nobody could see
+  # until the output was captured. Switching the delimiter to '|' alone would be luck
+  # (any '|' added to the text brings the bug back); escaping is the fix.
+  desc_esc=$(printf '%s' "$desc" | sed -e 's/[\\&|]/\\&/g')
+  sed -e "s|@VERSION@|$version|g" -e "s|@ARCH@|$pkg_archRpm|g" -e "s|@DESC@|$desc_esc|" \
     "$root/packaging/linux/naxlo-two.spec" > "$rpm_root/SPECS/naxlo-two.spec"
   rpmbuild -bb --define "_topdir $rpm_root" --define "_unpack_files_dir $rpm_root/BUILD" \
     "$rpm_root/SPECS/naxlo-two.spec"
