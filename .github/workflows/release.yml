@@ -44,8 +44,14 @@ permissions:
   contents: write
 
 concurrency:
+  # Same-ref runs supersede each other. `cancel-in-progress: false` here turned one
+  # unstartable job (a retired runner label) into a permanent block: the zombie run
+  # held the group, so every later release run sat in `queued` with zero jobs started,
+  # and nothing in the repo could clear it. Last write wins is the right policy for a
+  # publish step whose uploads are `--clobber`ed and whose tree comes from the tag: a
+  # superseded run loses nothing, while a blocked run loses every release after it.
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   flutter-version: "3.24.5"
