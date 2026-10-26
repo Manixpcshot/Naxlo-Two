@@ -3,7 +3,7 @@ description: >-
   Pure-Dart core for the Naxlo Two proxy client: protocol models, share-link
   parsing, Xray/sing-box config generation, subscription decoding and the
   adaptive server ranker. No Flutter dependency, so it is unit-testable in CI.
-version: 0.2.14+68
+version: 0.2.15+71
 publish_to: none
 repository: https://github.com/Manixpcshot/Naxlo-Two
 
