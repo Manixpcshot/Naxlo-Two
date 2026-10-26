@@ -1,5 +1,5 @@
 /// Kept in sync with `../../VERSION` by scripts/set_version.sh.
-const String kNaxloVersion = "0.2.16";
+const String kNaxloVersion = "0.2.17";
 
 /// Identifier used inside configs, logs and the update manifest.
 const String kNaxloAppId = 'naxlo_two';

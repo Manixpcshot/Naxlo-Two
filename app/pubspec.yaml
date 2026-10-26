@@ -3,7 +3,7 @@ description: >-
   Naxlo Two — a Flutter desktop and mobile client for self-hosted proxy
   servers, driving Xray-core or sing-box, with adaptive server ranking.
 publish_to: none
-version: 0.2.16+74
+version: 0.2.17+77
 
 environment:
   sdk: ^3.5.0
