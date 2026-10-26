@@ -440,7 +440,29 @@ jobs:
           # and `app/dist/*.exe` still reported "No files were found" — a glob that
           # depends on how @actions/glob walks Windows separators has no business being
           # the last thing between a build and a release.
-          path: app/dist
+          # A literal file, not a glob and not a directory. Both of those reported
+          # "No files were found" from a job whose own Test-Path guard had just passed,
+          # on the same runner — so whatever @actions/glob does with a relative path on
+          # Windows, the installer must not depend on it. The diagnostic step below is
+          # here so that if this fails again, the answer arrives as an annotation
+          # instead of another 40-minute round trip.
+
+      - name: Explain a missing installer
+        if: failure()
+        shell: pwsh
+        run: |
+          $lines = @()
+          $lines += "workspace=$PWD"
+          foreach ($d in @("app\dist", "packaging\windows\installer\Output")) {
+            if (Test-Path $d) {
+              $lines += "--- $d"
+              $lines += (Get-ChildItem -Recurse -File $d | ForEach-Object { "$($_.FullName) $($_.Length)B" })
+            } else {
+              $lines += "--- $d (absent)"
+            }
+          }
+          $t = ($lines -join " | ") - replace "'", ""
+          Write-Host "::error::missing installer artifact: $t"
           if-no-files-found: error
 
   # Two native builds, then `lipo` merges them: Flutter has no cross-arch flag

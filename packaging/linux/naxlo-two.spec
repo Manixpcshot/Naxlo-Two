@@ -72,8 +72,18 @@ fi
 /usr/bin/naxlo-two
 /usr/share/applications/naxlo-two.desktop
 /usr/share/doc/naxlo-two
-%license /usr/share/doc/naxlo-two/LICENSE
+# The hicolor png is installed two lines above in build_packages.sh (a stub when the
+# real icon asset is absent, so `gtk-update-icon-cache` has something to chew on), and
+# rpmbuild's answer to an installed file that no %files line claims is not a warning:
+# "Installed (but unpackaged) file(s) found" and the rpm is never written.
+/usr/share/icons/hicolor
+# No separate `%license` entry: /usr/share/doc/naxlo-two above already contains LICENSE,
+# and listing it twice earned `File listed twice: /usr/share/doc/naxlo-two/LICENSE`.
 
 %changelog
-* Sat Oct 25 2026 Naxlo <packaging@naxlo.dev> - @VERSION@-1
+# rpmbuild checks the weekday against the date and calls a mismatch
+# "bogus date in %changelog", which is an error, not a lint note. This line is also
+# where @VERSION@ is substituted, so it is edited by the packager script — keep the
+# date real if you touch it.
+* Mon Oct 26 2026 Naxlo <packaging@naxlo.dev> - @VERSION@-1
 - First packaged build: two ranking modes, Xray + sing-box, per-profile routing.
