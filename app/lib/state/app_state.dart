@@ -110,6 +110,18 @@ class AppState extends ChangeNotifier {
   /// this: see [_recomputeRanking] for why the two must not be one list.
   List<RankedServer> _rankedWithBias = const <RankedServer>[];
   UpdateDecision? updateAvailable;
+
+  /// The verified installer on disk, once the user has asked for it. Kept on the
+  /// state rather than in the widget so the banner survives a page switch, which
+  /// is exactly when a download finishes.
+  UpdateDownload? updateDownload;
+
+  /// Bytes received over bytes expected, or -1 when the total is unknown, or null
+  /// when no download is running. Never an indeterminate progress *animation*:
+  /// the UI smoke test pumps this tree and settles it, and an infinite bar would
+  /// never settle.
+  double? updateDownloadProgress;
+  bool _updating = false;
   int _rev = 0;
   bool _disposed = false;
 
@@ -759,14 +771,109 @@ class AppState extends ChangeNotifier {
 
   // ── updates ───────────────────────────────────────────────────────────────
 
+  /// Ask GitHub (and the repo's `release` manifest) what the newest release is.
+  ///
+  /// A re-entrancy guard, because this is reachable from the banner, the settings
+  /// switch and app start — and two concurrent checks means two `_touch()`
+  /// completions racing to write [updateAvailable], where the loser can leave a
+  /// stale decision on screen pointing at a version that was superseded a second
+  /// later.
   Future<void> checkForUpdates({bool silent = false}) async {
-    final decision = await updater.check(
-      channel: settings.updateChannel,
-      includePrerelease: settings.allowPrereleaseUpdates,
-    );
-    updateAvailable = decision.action == UpdateAction.none ? null : decision;
-    if (!silent && decision.action == UpdateAction.none) statusDetail = decision.reason;
+    if (_updating) return;
+    _updating = true;
+    try {
+      final decision = await updater.check(
+        channel: settings.updateChannel,
+        includePrerelease: settings.allowPrereleaseUpdates,
+        // `manifestUrl` is a persisted setting that nothing used to read, so
+        // "serve your own manifest" was documentation rather than behaviour. An
+        // empty value keeps the default GitHub raw URL; with an override set the
+        // Releases API is skipped, because a private mirror *is* the policy and
+        // pointing the updater at a second, different source would be surprising.
+        overrideUrl: settings.manifestUrl.isEmpty ? null : settings.manifestUrl,
+      );
+      updateAvailable = decision.action == UpdateAction.none ? null : decision;
+      // A fresh answer invalidates an installer downloaded for the previous one:
+      // offering "install 0.3.0" under a heading that now says 0.4.0 is how a
+      // user ends up running the wrong binary.
+      updateDownload = null;
+      if (!silent && decision.action == UpdateAction.none) statusDetail = decision.reason;
+    } finally {
+      _updating = false;
+      _touch();
+    }
+  }
+
+  String get updateSource => updater.lastSource;
+
+  /// `downloadUrl` is empty for a decision that only *announces* a version (a
+  /// prerelease with prereleases off, or a platform the manifest gives no asset
+  /// for), so the banner needs to know which of the three states it is in.
+  bool get updateDownloadable => (updateAvailable?.downloadUrl ?? '').isNotEmpty;
+
+  void dismissUpdate() {
+    updateAvailable = null;
+    updateDownload = null;
+    updateDownloadProgress = null;
     _touch();
+  }
+
+  /// Fetch the verified installer. Progress is written at most per whole percent,
+  /// because `onProgress` fires per socket chunk and calling `_touch()` on each
+  /// would rebuild the whole shell thousands of times for one 40 MB download.
+  Future<void> downloadUpdate() async {
+    final decision = updateAvailable;
+    if (decision == null || decision.downloadUrl.isEmpty || updateDownloadProgress != null) return;
+    updateDownloadProgress = -1;
+    _touch();
+    var lastPercent = -1;
+    var lastTick = DateTime.fromMillisecondsSinceEpoch(0);
+    final result = await updater.download(
+      decision,
+      onProgress: (received, total) {
+        final now = DateTime.now();
+        final percent = total > 0 ? (received * 100 ~/ total) : -1;
+        final fresh = now.difference(lastTick).inMilliseconds > 120;
+        if (percent != lastPercent || fresh) {
+          lastPercent = percent;
+          lastTick = now;
+          updateDownloadProgress = total > 0 ? received / total : -1;
+          _touch();
+        }
+      },
+    );
+    updateDownloadProgress = null;
+    updateDownload = result;
+    statusDetail = result.message;
+    _touch();
+  }
+
+  /// Hand the verified file to the platform installer. Returns true when the
+  /// process actually started, which on Windows is the signal to close this app
+  /// so the installer can replace the binaries it is holding open.
+  Future<bool> installUpdate() async {
+    final downloaded = updateDownload;
+    if (downloaded == null || !downloaded.installable) return false;
+    final result = await UpdateService.launchInstaller(File(downloaded.path));
+    statusDetail = result.message;
+    _touch();
+    return result.started;
+  }
+
+  /// Install, and take the app out of the installer's way.
+  ///
+  /// Windows is the only platform that needs the exit: the installer replaces
+  /// `naxlo_two.exe`, which this process has open, and Inno's
+  /// `CloseApplications=yes` would otherwise end the app on its own with no
+  /// chance to flush. So the debounced autosave is written *before* `exit`, and
+  /// `exit` is reached only when the process really started — a failed launch
+  /// must leave the app running with the error on screen, not kill a working
+  /// tunnel for nothing.
+  Future<void> installUpdateAndRestart() async {
+    if (!await installUpdate()) return;
+    if (!Platform.isWindows) return;
+    await flush();
+    exit(0);
   }
 
   // ── UI helpers ────────────────────────────────────────────────────────────

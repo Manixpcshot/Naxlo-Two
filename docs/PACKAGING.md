@@ -183,9 +183,19 @@ Behaviour worth knowing before you hand-edit the file:
   "up to date" — and `gen_release_manifest.sh` validates with `jq` before writing
   for the same reason.
 
-Serving your own: point `manifestUrl` (Settings → Diagnostics) at any HTTPS URL
-returning this JSON, e.g. a Pages site. `scripts/gen_release_manifest.sh` works
-from any repo you have `gh` access to.
+Serving your own: set `settings.manifestUrl` in `config.json` to any HTTPS URL
+returning this JSON, e.g. a Pages site — there is no text field for it in the
+Settings screen yet, deliberately, because a field that lets a click point the
+updater at another server is the one control an attacker most wants to have set.
+When an override is present the app reads only that URL and skips GitHub's
+Releases API, so a private mirror is both the policy and the inventory.
+`scripts/gen_release_manifest.sh` works from any repo you have `gh` access to.
+
+One asymmetry to know about: the `release` file is committed to `main` *after*
+the tag is pushed, because the digests do not exist until the assets are
+uploaded. So `release` at a tag ref describes the previous release, and
+`release` at `main` describes the newest one. The app reads `main`.
+`scripts/gen_site_index.sh` checks the two agree and says so when they cannot.
 
 ## Platform notes
 

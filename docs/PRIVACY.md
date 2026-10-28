@@ -110,10 +110,18 @@ grep -rn "Process.start\|Process.run" app/lib
 
 The last two should return only: the prober (`probe_service.dart`), the
 subscription fetch (`subscription_service.dart`), the updater
-(`update_service.dart`), the engine supervisor (`engine_service.dart`) and the
-system-proxy commands (`system_proxy.dart`). If a patch adds a six-line variant
-of any of these, it should say in the pull request which of the four it belongs
-to — otherwise it does not belong here.
+(`update_service.dart`), the engine supervisor (`engine_service.dart`), the
+engine locator (`engine_locator.dart`) and the system-proxy commands
+(`system_proxy.dart`). If a patch adds a six-line variant of any of these, it
+should say in the pull request which of them it belongs to — otherwise it does
+not belong here.
+
+The updater's endpoints are `api.github.com` (which release is newest, and the
+digest GitHub computed for each asset), `raw.githubusercontent.com` (the `release`
+manifest, for block lists) and the asset host those two name. It spawns exactly
+one process per user action — the platform hasher, and the installer only when
+the hash matched — and never composes a shell string, so an asset name containing
+a quote is a file name and not a second command.
 
 There is a CI job for the second-order version of the same promise
 (`.github/workflows/ci.yml` → the manifest and privacy guards), because a policy

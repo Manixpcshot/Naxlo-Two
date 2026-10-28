@@ -56,6 +56,35 @@ class ReleaseChannel {
     return cur.compareTo(min) < 0;
   }
 
+  /// Keep this channel's facts (version, link, digest, size) and take the
+  /// publisher's *policy* from `policy` instead.
+  ///
+  /// The two update sources answer different questions: GitHub's Releases API
+  /// knows which installer exists and what its sha256 is, but it cannot express
+  /// "0.3.0 is known-bad, do not run it" — only the `release` manifest can.
+  /// Merging them keeps the kill switch working while the version and the
+  /// integrity data come from GitHub itself.
+  ReleaseChannel withPolicy(ReleaseChannel? policy) {
+    if (policy == null) return this;
+    return ReleaseChannel(
+      version: version,
+      link: link,
+      details: details.isEmpty ? policy.details : details,
+      sha256: sha256.isEmpty ? policy.sha256 : sha256,
+      size: size == 0 ? policy.size : size,
+      minSupported: policy.minSupported,
+      warnAlwaysBelow: policy.warnAlwaysBelow,
+      updateOnlyBelow: policy.updateOnlyBelow,
+    );
+  }
+
+  /// The installer file name, so a download is saved under something
+  /// recognisable rather than a temporary UUID.
+  String get assetName {
+    final int slash = link.lastIndexOf('/');
+    return slash < 0 ? '' : link.substring(slash + 1);
+  }
+
   Map<String, Object?> toJson() => pruneNulls(<String, Object?>{
         'version': version,
         'link': link,
@@ -105,6 +134,22 @@ class PlatformReleases {
 
   bool isBlocked(String version) => block.contains(version);
 
+  /// Carry `policy`'s block list and per-channel policy fields onto this
+  /// platform's channels while keeping this platform's versions and links. A
+  /// channel that exists only in the policy is kept, so a version the publisher
+  /// blocked stays blocked even when the inventory said nothing about it.
+  PlatformReleases withPolicy(PlatformReleases? policy) {
+    if (policy == null) return this;
+    final Map<String, ReleaseChannel> merged = <String, ReleaseChannel>{};
+    for (final MapEntry<String, ReleaseChannel> e in channels.entries) {
+      merged[e.key] = e.value.withPolicy(policy.channelFor(e.key));
+    }
+    for (final MapEntry<String, ReleaseChannel> e in policy.channels.entries) {
+      merged.putIfAbsent(e.key, () => e.value);
+    }
+    return PlatformReleases(block: block.isEmpty ? policy.block : block, channels: merged);
+  }
+
   Map<String, Object?> toJson() => <String, Object?>{
         'block': List<String>.from(block),
         for (final e in channels.entries) e.key: e.value.toJson(),
@@ -144,6 +189,10 @@ class UpdateDecision {
     this.available = '',
     this.downloadUrl = '',
     this.details = '',
+    this.sha256 = '',
+    this.size = 0,
+    this.assetName = '',
+    this.minSupported = '',
   });
 
   final UpdateAction action;
@@ -151,6 +200,22 @@ class UpdateDecision {
   final String available;
   final String downloadUrl;
   final String details;
+
+  /// Integrity hash of [downloadUrl] as the publisher reported it. Empty means
+  /// nobody can vouch for the bytes, which is the difference between "download
+  /// this and run it" and "here is a link, you decide".
+  final String sha256;
+
+  /// Advertised size in bytes, so a download can be called short before it runs.
+  final int size;
+
+  /// File name the installer should be saved under.
+  final String assetName;
+
+  /// The version this app must be at to keep working. Only ever set on a
+  /// `blocked` decision, and shown because "update required" with no lower bound
+  /// is not actionable information.
+  final String minSupported;
 
   bool get shouldPrompt => action == UpdateAction.update || action == UpdateAction.force;
   bool get isBlocking => action == UpdateAction.force || action == UpdateAction.blocked;
@@ -182,12 +247,43 @@ class ReleaseManifest {
 
   PlatformReleases? platform(String name) => platforms[name];
 
+  /// Keep this manifest's versions, links and digests, and take the *policy*
+  /// (block lists, `minSupported`, the warn/force cutoffs) from `policy`.
+  ///
+  /// `policy == null` — the manifest URL unreachable or unparseable — returns
+  /// this manifest unchanged rather than an empty one: a dead mirror must not be
+  /// able to lift a block list, and must not be able to invent one either.
+  ReleaseManifest withPolicy(ReleaseManifest? policy) {
+    if (policy == null) return this;
+    final Map<String, PlatformReleases> merged = <String, PlatformReleases>{};
+    for (final String name in kPlatforms) {
+      final PlatformReleases? mine = platforms[name];
+      final PlatformReleases? theirs = policy.platforms[name];
+      if (mine != null) {
+        merged[name] = mine.withPolicy(theirs);
+      } else if (theirs != null && theirs.block.isNotEmpty) {
+        // Nothing installable for this platform, but a kill switch still has to
+        // reach decide() — that is the entire point of a block list.
+        merged[name] = PlatformReleases(block: theirs.block);
+      }
+    }
+    return ReleaseManifest(
+      app: app,
+      filenum: filenum,
+      generatedAt: generatedAt,
+      platforms: merged,
+    );
+  }
+
   /// Decide what to do about updates for `platform`/`channel` given the running
   /// `currentVersion`.
   ///
-/// Ordering matters: a blocked build must be told to move *even if* the
-  /// manifest also offers an optional update, and a version that is already the
-  /// newest must never nag (that is how update loops start).
+  /// Ordering matters three ways: a blocked build must be told to move *even if*
+  /// the manifest also offers an optional update; a version that is already the
+  /// newest must never nag (that is how update loops start); and the
+  /// `updateOnlyBelow` ratchet is only honoured for a version that is actually
+  /// older than what is offered, because a ratchet pointing backwards would be a
+  /// forced downgrade.
   UpdateDecision decide({
     required String platform,
     required String currentVersion,
@@ -206,6 +302,7 @@ class ReleaseManifest {
         available: chan?.version ?? '',
         downloadUrl: chan?.link ?? '',
         details: chan?.details ?? '',
+        minSupported: chan?.minSupported ?? '',
       );
     }
     final entry = releases.channelFor(channel) ?? releases.preferred;
@@ -220,6 +317,22 @@ class ReleaseManifest {
         reason: 'unparseable version "${entry.version}" in manifest',
       );
     }
+    // This ordering is deliberate, and it has to sit above the forced check:
+    // `updateOnlyBelow` is a ratchet ("anything this old must leave"), not a
+    // promise that the advertised version is newer. Checked first, a channel
+    // left pointing at an older release — a manifest edited by hand, a rollback
+    // of the last tag — would report a *forced downgrade*, and a client that
+    // obeyed would drop its own version and then be told to drop again forever.
+    if (mine.compareTo(latest) >= 0) {
+      return UpdateDecision(
+        action: UpdateAction.none,
+        reason: 'up to date ($currentVersion)',
+        available: entry.version,
+        sha256: entry.sha256,
+        size: entry.size,
+        assetName: entry.assetName,
+      );
+    }
     if (entry.isForced(currentVersion)) {
       return UpdateDecision(
         action: UpdateAction.force,
@@ -227,6 +340,9 @@ class ReleaseManifest {
         available: entry.version,
         downloadUrl: entry.link,
         details: entry.details,
+        sha256: entry.sha256,
+        size: entry.size,
+        assetName: entry.assetName,
       );
     }
     final isPrerelease = latest.preRelease.isNotEmpty;
@@ -234,12 +350,6 @@ class ReleaseManifest {
       return UpdateDecision(
         action: UpdateAction.none,
         reason: 'only a prerelease ($latest) exists; prereleases are off',
-      );
-    }
-    if (mine.compareTo(latest) >= 0) {
-      return UpdateDecision(
-        action: UpdateAction.none,
-        reason: 'up to date ($mine)',
       );
     }
     final warnBelow = Semver.tryParse(entry.warnAlwaysBelow);
@@ -252,6 +362,9 @@ class ReleaseManifest {
       available: entry.version,
       downloadUrl: entry.link,
       details: entry.details,
+      sha256: entry.sha256,
+      size: entry.size,
+      assetName: entry.assetName,
     );
   }
 

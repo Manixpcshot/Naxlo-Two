@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naxlo Two — proxy client for Xray &amp; sing-box</title>
+<meta name="description" content="Naxlo Two is an open-source proxy client for Windows, Linux, macOS and Android: Xray-core and sing-box engines, adaptive server ranking, no telemetry, updates straight from GitHub Releases.">
+<meta name="color-scheme" content="dark light">
+<style>
+  /* Design tokens mirror app/lib/theme/palette.dart so the site and the app are
+     visibly the same product; there is no build step and no CDN, because this
+     file is also opened from a checkout and from Drive preview without a network. */
+  :root{
+    --violet:#7C4DFF; --violet-dim:#5A36C9; --cyan:#22D3EE; --amber:#F5A524;
+    --rose:#F04463; --mint:#2FBF71;
+    --ink-0:#0A0A0F; --ink-1:#12121A; --ink-2:#1A1B26; --ink-3:#242634;
+    --mist:#EDEEF6; --muted:#9A9CB0;
+    --radius:18px; --maxw:1120px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink-0); color:var(--mist);
+    font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  a{color:var(--cyan);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+
+  /* Aurora: three blurred gradient fields. Pure CSS, and it stops entirely under
+     prefers-reduced-motion, the same rule the app follows in ui/motion.dart. */
+  .aurora{position:fixed;inset:-30% -10% auto;height:120vh;z-index:-1;filter:blur(70px);opacity:.55}
+  .aurora i{position:absolute;display:block;border-radius:50%}
+  .aurora i:nth-child(1){width:46vw;height:46vw;left:2%;top:4%;background:radial-gradient(circle at 30% 30%,var(--violet),transparent 65%);animation:drift 26s ease-in-out infinite}
+  .aurora i:nth-child(2){width:38vw;height:38vw;right:4%;top:14%;background:radial-gradient(circle at 60% 40%,var(--cyan),transparent 62%);animation:drift 34s ease-in-out infinite reverse}
+  .aurora i:nth-child(3){width:30vw;height:30vw;left:34%;top:40%;background:radial-gradient(circle at 50% 50%,var(--mint),transparent 60%);animation:drift 42s ease-in-out infinite}
+  @keyframes drift{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(4vw,-3vh,0) scale(1.12)}}
+  @media (prefers-reduced-motion: reduce){
+    .aurora i{animation:none}
+    .card,.btn{transition:none!important}
+  }
+
+  header{position:sticky;top:0;z-index:5;backdrop-filter:blur(14px);background:rgba(10,10,15,.72);border-bottom:1px solid rgba(255,255,255,.07)}
+  .bar{display:flex;align-items:center;gap:16px;height:64px}
+  .mark{display:flex;align-items:center;gap:10px;font-weight:750;letter-spacing:.2px}
+  .mark svg{width:26px;height:26px;flex:0 0 auto}
+  .bar nav{margin-inline-start:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .bar nav a{color:var(--muted);font-size:14px;padding:7px 11px;border-radius:10px}
+  .bar nav a:hover{color:var(--mist);background:var(--ink-2);text-decoration:none}
+  .ghost{border:1px solid var(--ink-3);background:transparent;color:var(--mist);font:inherit;font-size:13px;padding:7px 12px;border-radius:11px;cursor:pointer}
+  .ghost:hover{border-color:var(--violet)}
+
+  .hero{padding:78px 0 54px;display:grid;grid-template-columns:1.15fr .85fr;gap:44px;align-items:center}
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);border:1px solid var(--ink-3);border-radius:999px;padding:6px 13px;background:rgba(255,255,255,.02)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 4px rgba(47,191,113,.18)}
+  h1{font-size:clamp(34px,5.4vw,58px);line-height:1.06;margin:18px 0 14px;letter-spacing:-1.2px;font-weight:800}
+  h1 span{background:linear-gradient(100deg,var(--violet),var(--cyan) 55%,var(--mint));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{color:var(--muted);font-size:17.5px;max-width:56ch}
+  .cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:12px 18px;border-radius:14px;font-weight:650;font-size:15px;border:1px solid transparent;cursor:pointer;transition:transform .12s ease,box-shadow .2s ease}
+  .btn:active{transform:scale(.985)}
+  .btn-primary{background:linear-gradient(120deg,var(--violet),var(--cyan));color:#08080d;box-shadow:0 10px 34px rgba(124,77,255,.28)}
+  .btn-primary:hover{box-shadow:0 14px 44px rgba(124,77,255,.42);text-decoration:none}
+  .btn-line{border-color:var(--ink-3);color:var(--mist)}
+  .btn-line:hover{border-color:var(--cyan);text-decoration:none}
+
+  .panel{background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.012));border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);padding:18px}
+  .screen{font-family:var(--mono);font-size:12.5px;line-height:1.9;color:var(--muted)}
+  .screen b{color:var(--mist);font-weight:600}
+  .screen .k{color:var(--cyan)}
+  .screen .ok{color:var(--mint)}
+  .screen .warn{color:var(--amber)}
+  .bar2{height:6px;border-radius:99px;background:var(--ink-3);overflow:hidden}
+  .bar2 i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--violet),var(--cyan))}
+
+  h2{font-size:clamp(22px,3.1vw,31px);margin:0 0 8px;letter-spacing:-.5px}
+  section{padding:52px 0;border-top:1px solid rgba(255,255,255,.06)}
+  .sub{color:var(--muted);max-width:70ch;margin:0 0 26px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:14px}
+  .card{background:rgba(255,255,255,.028);border:1px solid rgba(255,255,255,.075);border-radius:var(--radius);padding:19px;transition:transform .18s ease,border-color .18s ease,background .18s ease}
+  .card:hover{transform:translateY(-3px);border-color:rgba(124,77,255,.45);background:rgba(124,77,255,.055)}
+  .card h3{margin:12px 0 6px;font-size:17px}
+  .card p{margin:0;color:var(--muted);font-size:14.5px}
+  .ico{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:linear-gradient(140deg,rgba(124,77,255,.32),rgba(34,211,238,.18));border:1px solid rgba(255,255,255,.1)}
+  .ico svg{width:18px;height:18px;stroke:var(--mist);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  caption{text-align:start;color:var(--muted);font-size:13px;padding:0 0 10px}
+  th,td{padding:11px 10px;text-align:start;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
+  th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.7px;text-transform:uppercase}
+  td.name{font-family:var(--mono);font-size:13px}
+  td.sz{color:var(--muted);white-space:nowrap}
+  tr.dim td{color:var(--muted)}
+  .sha{font-family:var(--mono);font-size:11.5px;color:var(--muted);word-break:break-all}
+  .pill{display:inline-block;font-size:11.5px;padding:3px 8px;border-radius:999px;border:1px solid var(--ink-3);color:var(--muted)}
+  .pill.win{border-color:rgba(34,211,238,.4);color:var(--cyan)}
+  .pill.na{border-color:rgba(245,165,36,.42);color:var(--amber)}
+  .tablewrap{overflow-x:auto}
+  .copy{border:1px solid var(--ink-3);background:transparent;color:var(--muted);border-radius:8px;padding:3px 8px;font:inherit;font-size:11.5px;cursor:pointer}
+  .copy:hover{color:var(--mist);border-color:var(--cyan)}
+  .note{margin-top:14px;color:var(--muted);font-size:13.5px;border-inline-start:2px solid var(--amber);padding-inline-start:12px}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  ol,ul{margin:0;padding-inline-start:20px;color:var(--muted)}
+  ol li,ul li{margin-bottom:9px}
+  ol li b,ul li b{color:var(--mist)}
+  code{font-family:var(--mono);font-size:.9em;background:var(--ink-2);border:1px solid var(--ink-3);border-radius:6px;padding:1px 5px}
+  .flow{display:flex;flex-direction:column;gap:0}
+  .step{display:grid;grid-template-columns:34px 1fr;gap:14px;padding-bottom:16px;position:relative}
+  .step::before{content:"";position:absolute;inset-block-start:26px;inset-inline-start:16px;width:2px;height:calc(100% - 22px);background:linear-gradient(180deg,var(--violet),transparent)}
+  .step:last-child::before{display:none}
+  .num{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:var(--ink-2);border:1px solid var(--ink-3);font-family:var(--mono);font-size:13px;color:var(--cyan)}
+  .step p{margin:2px 0 0;color:var(--muted);font-size:14px}
+
+  footer{padding:34px 0 46px;color:var(--muted);font-size:13.5px;border-top:1px solid rgba(255,255,255,.06)}
+  .foot{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .foot .sep{opacity:.4}
+
+  [dir="rtl"] .step::before{inset-inline-start:auto;inset-inline-end:16px}
+  body.fa{font-family:system-ui,"Vazirmatn","Segoe UI",Tahoma,sans-serif;line-height:1.85}
+  body.fa .screen,body.fa code,body.fa .sha,body.fa .num{direction:ltr;unicode-bidi:isolate}
+
+  @media (max-width:880px){
+    .hero{grid-template-columns:1fr;padding:46px 0 34px;gap:28px}
+    .two{grid-template-columns:1fr}
+    .bar nav a:not(.keep){display:none}
+  }
+</style>
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<header>
+  <div class="wrap bar">
+    <span class="mark">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7C4DFF"/><stop offset="1" stop-color="#22D3EE"/></linearGradient></defs><path d="M32 3 58 18v28L32 61 6 46V18z" fill="none" stroke="url(#g)" stroke-width="3.2"/><path d="M21 43V21l22 22V21" fill="none" stroke="url(#g)" stroke-width="4.6" stroke-linecap="round"/></svg>
+      Naxlo Two
+    </span>
+    <nav>
+      <a href="#download">Download</a>
+      <a href="#ranking">Ranking</a>
+      <a href="#updater">Updates</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#build">Build</a>
+      <button class="ghost keep" id="lang" type="button" aria-label="Switch language">فارسی</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="wrap">
+  <section class="hero" id="top" style="border:0;padding-top:64px">
+    <div>
+      <span class="eyebrow"><i class="dot"></i><span data-i18n="eyebrow">release <b id="ver">v0.3.0</b> · Xray-core + sing-box</span></span>
+      <h1><span data-i18n="h1">A proxy client that ranks its own servers.</span></h1>
+      <p class="lede" data-i18n="lede">Naxlo Two drives Xray-core and sing-box, measures every node it knows, and picks the one that is actually working — with a published formula you can read, weights you can move, and no telemetry at all.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#download" data-i18n="cta1" id="dlbtn">Download this release</a>
+        <a class="btn btn-line" href="https://github.com/Manixpcshot/Naxlo-Two" rel="noopener" data-i18n="cta2">Source on GitHub</a>
+        <button class="btn btn-line" id="copycmd" type="button" data-i18n="cta3">Copy install command</button>
+      </div>
+    </div>
+    <aside class="panel" aria-label="Ranking preview">
+      <div class="screen">
+        <b>adaptive ranking</b> · mode=<span class="k">advanced</span><br>
+        #1 <b>FR-Par-03</b> <span class="ok">41 ms</span> · rel 0.98 · score 92%<br>
+        <span class="bar2"><i style="width:92%"></i></span><br>
+        #2 <b>NL-Ams-01</b> <span class="ok">58 ms</span> · rel 0.91 · score 81%<br>
+        <span class="bar2"><i style="width:81%"></i></span><br>
+        #3 <b>DE-Fra-07</b> <span class="warn">312 ms</span> · rel 0.62 · score 44%<br>
+        <span class="bar2"><i style="width:44%"></i></span><br>
+        <span style="color:var(--muted)">switch margin 18% · dwell 45s · pinned: off</span>
+      </div>
+    </aside>
+  </section>
+</div>
+
+<section id="download">
+  <div class="wrap">
+    <h2 data-i18n="dlh">Downloads</h2>
+    <p class="sub" data-i18n="dls">Every file below is a GitHub release asset, and every <code>sha256</code> is the digest GitHub computed while receiving the upload — the same value the app verifies before it will run an installer. Check it yourself:</p>
+    <div class="panel" style="margin-bottom:18px">
+      <div class="screen"><span class="ok">$</span> <span id="verify-cmd" style="word-break:break-all">sha256sum Naxlo.linux.x64.deb</span></div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>v0.3.0 · <a href="https://github.com/Manixpcshot/Naxlo-Two/releases/tag/v0.3.0">release notes</a> · <a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/SHA256SUMS.txt">SHA256SUMS.txt</a></caption>
+        <thead>
+          <tr><th data-i18n="th1">Platform</th><th data-i18n="th2">File</th><th data-i18n="th3">Size</th><th data-i18n="th4">sha256</th><th></th></tr>
+        </thead>
+        <tbody>
+<!-- BEGIN ASSETS -->
+          <!-- generated by scripts/gen_site_index.sh — do not hand-edit these rows -->
+          <tr>
+            <td><span class="pill">Windows x64</span></td>
+            <td class="name"><a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/setup-Naxlo.x64.exe">setup-Naxlo.x64.exe</a></td>
+            <td class="sz">38.1 MB</td>
+            <td><span class="sha">51202fb3065d83c86f8508fe679077315d6edabe99686509761e57dc6402ac75</span></td>
+            <td><button class="copy" data-copy="51202fb3065d83c86f8508fe679077315d6edabe99686509761e57dc6402ac75">copy</button></td>
+          </tr>
+          <tr>
+            <td><span class="pill">Linux x64 · deb</span></td>
+            <td class="name"><a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/Naxlo.linux.x64.deb">Naxlo.linux.x64.deb</a></td>
+            <td class="sz">38.3 MB</td>
+            <td><span class="sha">69fe051fc20a0c02c8f865b15a6ea9551dbcec791a3bd481ad0bfdd362ce6f4b</span></td>
+            <td><button class="copy" data-copy="69fe051fc20a0c02c8f865b15a6ea9551dbcec791a3bd481ad0bfdd362ce6f4b">copy</button></td>
+          </tr>
+          <tr>
+            <td><span class="pill">Linux x64 · rpm</span></td>
+            <td class="name"><a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/Naxlo.linux.x64.rpm">Naxlo.linux.x64.rpm</a></td>
+            <td class="sz">48.2 MB</td>
+            <td><span class="sha">54d5f8797986477b4c83e7fdaa733d0dae98ded37e369094b2aa41447e2e8ea9</span></td>
+            <td><button class="copy" data-copy="54d5f8797986477b4c83e7fdaa733d0dae98ded37e369094b2aa41447e2e8ea9">copy</button></td>
+          </tr>
+          <tr>
+            <td><span class="pill">Arch · pkg</span></td>
+            <td class="name"><a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/Naxlo.linux.x64.pkg.tar.zst">Naxlo.linux.x64.pkg.tar.zst</a></td>
+            <td class="sz">47.4 MB</td>
+            <td><span class="sha">35833e135ca7abc0eeb58dbc8ad839bc9e2699a8c4a1b924800546d2a9731bcc</span></td>
+            <td><button class="copy" data-copy="35833e135ca7abc0eeb58dbc8ad839bc9e2699a8c4a1b924800546d2a9731bcc">copy</button></td>
+          </tr>
+          <tr>
+            <td><span class="pill">Android · arm64-v8a</span></td>
+            <td class="name"><a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/Naxlo.android.arm64-v8a.apk">Naxlo.android.arm64-v8a.apk</a></td>
+            <td class="sz">7.7 MB</td>
+            <td><span class="sha">15ff553c3928e8867fab592afd3e8048fe871360f548e40083c8b2f0705520df</span></td>
+            <td><button class="copy" data-copy="15ff553c3928e8867fab592afd3e8048fe871360f548e40083c8b2f0705520df">copy</button></td>
+          </tr>
+          <tr>
+            <td><span class="pill">Android · universal</span></td>
+            <td class="name"><a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/Naxlo.apk">Naxlo.apk</a></td>
+            <td class="sz">21.7 MB</td>
+            <td><span class="sha">124230e78d75b25e35b6041d353bc096791c5907d36539cf959a396f39473623</span></td>
+            <td><button class="copy" data-copy="124230e78d75b25e35b6041d353bc096791c5907d36539cf959a396f39473623">copy</button></td>
+          </tr>
+          <tr>
+            <td><span class="pill">Android · armeabi-v7a</span></td>
+            <td class="name"><a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/Naxlo.android.armeabi-v7a.apk">Naxlo.android.armeabi-v7a.apk</a></td>
+            <td class="sz">7.2 MB</td>
+            <td><span class="sha">974fe63cd91fcafa2057370c63254b08ed2940688d2f84652fcb1ec73fdf7ca4</span></td>
+            <td><button class="copy" data-copy="974fe63cd91fcafa2057370c63254b08ed2940688d2f84652fcb1ec73fdf7ca4">copy</button></td>
+          </tr>
+          <tr>
+            <td><span class="pill">Android · x86_64</span></td>
+            <td class="name"><a href="https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.3.0/Naxlo.android.x86_64.apk">Naxlo.android.x86_64.apk</a></td>
+            <td class="sz">7.8 MB</td>
+            <td><span class="sha">a8341bbf46a2c1895a83044f3c822a056b5e5678334e0d41eb062992825fda68</span></td>
+            <td><button class="copy" data-copy="a8341bbf46a2c1895a83044f3c822a056b5e5678334e0d41eb062992825fda68">copy</button></td>
+          </tr>
+          <tr class="dim">
+            <td><span class="pill na">macOS universal</span></td>
+            <td class="name">Naxlo.macOS.universal.dmg — not built for this release</td>
+            <td class="sz">—</td>
+            <td><span class="sha">the app announces the update and hands the download to your browser</span></td>
+            <td></td>
+          </tr>
+          <tr class="dim">
+            <td><span class="pill na">Windows ARM64</span></td>
+            <td class="name">setup-Naxlo.arm64.exe — not built for this release</td>
+            <td class="sz">—</td>
+            <td><span class="sha">the app announces the update and hands the download to your browser</span></td>
+            <td></td>
+          </tr>
+<!-- END ASSETS -->
+        </tbody>
+      </table>
+    </div>
+    <p class="note" data-i18n="dln">Linux: <code>sudo apt install ./Naxlo.linux.x64.deb</code> · Arch: <code>sudo pacman -U Naxlo.linux.x64.pkg.tar.zst</code> · Android: allow “install from this source”, then open the APK. No repository, no PPA, no signing key to trust — this is a personal project; the checksum is the integrity story.</p>
+  </div>
+</section>
+
+<section id="ranking">
+  <div class="wrap">
+    <h2 data-i18n="rakh">Two ways to decide which node to use</h2>
+    <p class="sub" data-i18n="raks">The ranking is the product. Most clients sort by “last ping won”, which is how a node that answers 40 ms once and drops every third connection ends up on top. Naxlo Two keeps a model per node instead, and publishes how it is computed so you can argue with it.</p>
+    <div class="grid">
+      <article class="card">
+        <span class="ico"><svg viewBox="0 0 24 24"><path d="M4 18 9 9l4 5 3-4 4 8z"/></svg></span>
+        <h3 data-i18n="r1h">Simple mode</h3>
+        <p data-i18n="r1p">Latency and recent success rate, nothing else. Predictable, and the right choice when you want the switch decision to be obvious to a second reader.</p>
+      </article>
+      <article class="card">
+        <span class="ico"><svg viewBox="0 0 24 24"><path d="M3 17c4-9 6 3 9-6 2 6 4 2 6 9"/></svg></span>
+        <h3 data-i18n="r2h">Advanced mode</h3>
+        <p data-i18n="r2p">An EWMA over latency with a half-life, so an old sample fades instead of being overwritten; jitter, reliability and throughput as separate terms; and Thompson sampling, which keeps exploring a node that has been quiet rather than condemning it forever.</p>
+      </article>
+      <article class="card">
+        <span class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v7m0 0-4 4m4-4 4 4M5 21h14"/></svg></span>
+        <h3 data-i18n="r3h">Weights you can move</h3>
+        <p data-i18n="r3p">Latency, jitter, reliability, throughput, freshness, stability and stickiness are seven sliders. Presets for “speed first” and “steady first” are starting points, not verdicts.</p>
+      </article>
+      <article class="card">
+        <span class="ico"><svg viewBox="0 0 24 24"><path d="M7 7h10v10H7z"/><path d="M4 12h3m10 0h3M12 4v3m0 10v3"/></svg></span>
+        <h3 data-i18n="r4h">It refuses to flap</h3>
+        <p data-i18n="r4p">A switch needs a real margin plus a dwell time, the margin doubles after recent flips, and a node you pinned is never moved. “Something is 4 ms faster” is not a reason to rebuild your tunnel.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="updater">
+  <div class="wrap two">
+    <div>
+      <h2 data-i18n="uph">Updates, read from GitHub itself</h2>
+      <p class="sub" data-i18n="ups">The app asks GitHub’s Releases API — the same endpoint the website uses — for the newest published release, picks the asset for its platform, and shows you the version, the size, the exact URL and the full digest. “Download” fetches it into a temp directory; “Install &amp; restart” only appears once the bytes on disk hash to what the release says they hash to. A release published without a digest can be announced but never run.</p>
+      <p class="sub" data-i18n="ups2">The repo’s <code>release</code> manifest is read alongside it for the parts GitHub cannot express: a block list of known-bad versions and the ratchet that says “anything older than this must move”. The two are merged per platform — GitHub for what exists, the manifest for what is allowed — and the settings screen tells you which one answered, because “up to date” from a dead endpoint is not the same sentence.</p>
+    </div>
+    <div class="panel">
+      <div class="flow">
+        <div class="step"><span class="num">1</span><div><b>GET api.github.com/repos/…/releases</b><p>drafts skipped, prereleases land on the beta channel, half-uploaded assets ignored.</p></div></div>
+        <div class="step"><span class="num">2</span><div><b>pick the asset for this platform</b><p><code>setup-Naxlo.x64.exe</code>, <code>Naxlo.linux.x64.deb</code>, <code>Naxlo.android.arm64-v8a.apk</code>… never a checksum file.</p></div></div>
+        <div class="step"><span class="num">3</span><div><b>merge the publisher policy</b><p>block lists and <code>updateOnlyBelow</code> from the manifest; never a downgrade, whichever way the versions point.</p></div></div>
+        <div class="step"><span class="num">4</span><div><b>download → <code>.part</code> → hash → rename</b><p>https only, a byte cap and an idle timeout, so a truncating proxy fails instead of hanging.</p></div></div>
+        <div class="step"><span class="num">5</span><div><b>hand over to the platform installer</b><p>Inno with <code>/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS</code>, <code>open</code> for a dmg, and on Linux the printed command is the one you see in the app.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <h2 data-i18n="prh">Privacy is a build-time fact, not a promise</h2>
+    <p class="sub" data-i18n="prs">The app talks to three kinds of place: the servers you added, the subscription URL you pasted, and GitHub for updates. That list is enforced in CI by grepping the source for analytics SDK imports, tracking hosts and device-identifier generation — so a future commit cannot add telemetry quietly.</p>
+    <div class="grid">
+      <article class="card"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v6c0 5-3.5 7.4-8 8-4.5-.6-8-3-8-8V7z"/></svg></span><h3 data-i18n="p1h">No accounts, no phone-home</h3><p data-i18n="p1p">No crash reporter, no analytics, no “anonymous usage statistics”. Nothing is sent when you install, open or close the app.</p></article>
+      <article class="card"><span class="ico"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M9 9h6v6H9z"/></svg></span><h3 data-i18n="p2h">Your config stays on disk</h3><p data-i18n="p2p">Profiles, nodes and measurements are written to your own config directory as plain JSON you can read, diff and copy to another machine.</p></article>
+      <article class="card"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg></span><h3 data-i18n="p3h">Probes stay probes</h3><p data-i18n="p3p">Latency probes open a TLS handshake to your own node with an SNI you can set. They carry no payload and never touch a third-party endpoint.</p></article>
+    </div>
+  </div>
+</section>
+
+<section id="build">
+  <div class="wrap two">
+    <div>
+      <h2 data-i18n="blh">Built for you to read</h2>
+      <p class="sub" data-i18n="blp">Flutter and Dart on top of the Xray-core engine (sing-box as an alternate engine for the routing paths where it fits better). No fork of anyone’s client: the UI, the ranking, the packaging and the release pipeline are written here, in the open, and every merge to <code>main</code> bumps the version, tags it, builds installers and publishes the release — including the update manifest the app reads.</p>
+      <ul>
+        <li><b data-i18n="b1">Engines</b> — Xray-core <code>v26.10.21</code>, sing-box <code>v1.14.4</code>, pinned by digest in <code>engine-lock.json</code> and fetched with checksum verification.</li>
+        <li><b data-i18n="b2">Protocols</b> — VLESS (Reality), VMess, Trojan, Shadowsocks, SOCKS; TCP, WebSocket, gRPC, h2 and xhttp transports.</li>
+        <li><b data-i18n="b3">CI</b> — six checks per pull request, and the generated configs are fed to the real <code>xray</code> / <code>sing-box</code> binaries so an invented JSON key cannot ship.</li>
+      </ul>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/Manixpcshot/Naxlo-Two/releases" rel="noopener" data-i18n="b4h">All releases</a>
+        <a class="btn btn-line" href="https://github.com/Manixpcshot/Naxlo-Two/issues" rel="noopener" data-i18n="b5h">Report an issue</a>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="screen">
+        <b>flutter build linux --release</b><br>
+        <span class="k">·</span> engine fetch &nbsp;<span class="ok">pinned digest ok</span><br>
+        <span class="k">·</span> config smoke &nbsp;<span class="ok">xray + sing-box accept it</span><br>
+        <span class="k">·</span> privacy guards &nbsp;<span class="ok">no telemetry, 3 network call sites</span><br>
+        <span class="k">·</span> packaging &nbsp;<span class="ok">deb · rpm · pkg · inno · apk</span><br>
+        <span class="k">·</span> release + manifest &nbsp;<span class="ok">v0.3.0 published</span><br>
+        <span style="color:var(--muted)">one merge → one tag → one release</span>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span data-i18n="foot1">Naxlo Two is an independent project; it sells nothing and hosts nothing for you.</span>
+    <span class="sep">·</span><a href="https://github.com/Manixpcshot/Naxlo-Two/blob/main/docs/PRIVACY.md" rel="noopener">privacy</a>
+    <span class="sep">·</span><a href="https://github.com/Manixpcshot/Naxlo-Two/blob/main/LICENSE" rel="noopener">license</a>
+    <span class="sep">·</span><span data-i18n="foot2">Download table generated from the live release — see <code>scripts/gen_site_index.sh</code>.</span>
+  </div>
+</footer>
+
+<script>
+// Two behaviours, both optional: the language toggle and the copy buttons. No
+// fetch, no analytics, nothing that needs a network — this page is also read
+// from a checkout and from a Drive preview.
+(function () {
+  var fa = {
+    eyebrow: 'انتشار <b id="ver">v0.3.0</b> · ایکس‌ری + sing-box',
+    h1: 'کلاینت پروکسی‌ای که خودش گره‌هایش را رتبه‌بندی می‌کند.',
+    lede: 'ناکسلو دو روی Xray-core و sing-box کار می‌کند، هر گره را اندازه می‌گیرد و همان را انتخاب می‌کند که واقعاً کار می‌کند — با فرمولی منتشرشده، وزن‌های قابل‌تغییر و بدون هیچ تله‌متری.',
+    cta1: 'دانلود همین نسخه',
+    cta2: 'سورس روی گیت‌هاب',
+    cta3: 'کپی دستور نصب',
+    dlh: 'دانلودها',
+    dls: 'هر فایل زیر یک asset از ریلیز گیت‌هاب است و هر sha256 همان digest است که گیت‌هاب هنگام دریافت آپلود محاسبه کرده — همان مقداری که برنامه پیش از اجرای نصب‌کننده بررسی می‌کند. خودتان هم چک کنید:',
+    th1: 'سیستم‌عامل', th2: 'فایل', th3: 'حجم', th4: 'sha256',
+    dln: 'لینوکس: sudo apt install ./Naxlo.linux.x64.deb · آرچ: sudo pacman -U Naxlo.linux.x64.pkg.tar.zst · اندروید: «نصب از این منبع» را مجاز کنید و APK را باز کنید. بدون ریپازیتوری و بدون کلید امضا؛ تنها مدرکِ تمامیت، همین checksum است.',
+    rakh: 'دو روش برای انتخاب گره',
+    raks: 'رتبه‌بندی، خودِ محصول است. بیشتر کلاینت‌ها بر اساس «آخرین پینگ» مرتب می‌کنند؛ همین باعث می‌شود گره‌ای که یک بار ۴۰ میلی‌ثانیه پاسخ داده و هر سه‌بار یک‌بار قطع می‌شود، اول لیست بماند. ناکسلو دو به‌جای آن برای هر گره یک مدل نگه می‌دارد و طرز محاسبه‌اش را منتشر می‌کند.',
+    r1h: 'حالت ساده', r1p: 'فقط تأخیر و نرخ موفقیت اخیر. قابل‌پیش‌بینی، و وقتی خوب است که بخواهید تصمیمِ جابه‌جایی برای نفر دوم هم روشن باشد.',
+    r2h: 'حالت پیشرفته', r2p: 'میانگین نمایی (EWMA) روی تأخیر با نیم‌عمر، تا نمونهٔ کهنه بازنویسی نشود بلکه کمرنگ شود؛ ژیتر، پایداری و حجم به‌عنوان سه مؤلفهٔ جدا؛ و نمونه‌برداری تامپسون که گرهٔ ساکت را برای همیشه محکوم نمی‌کند.',
+    r3h: 'وزن‌های قابل‌تنظیم', r3p: 'هفت اسلایدر: تأخیر، ژیتر، قابلیت‌اطمینان، حجم، تازگی، ثبات و چسبندگی. پیش‌فرض‌های «سرعت اول» و «ثبات اول» نقطهٔ شروع‌اند، نه حکم.',
+    r4h: 'نوسان ندارد', r4p: 'جابه‌جایی به حاشیهٔ واقعی و زمان توقف نیاز دارد؛ حاشیه بعد از چند جابه‌جایی پشت‌سرهم دو برابر می‌شود، و گرهٔ سنجاق‌شده هرگز جابه‌جا نمی‌شود.',
+    uph: 'بروزرسانی مستقیم از خود گیت‌هاب',
+    ups: 'برنامه از Releases API گیت‌هاب newest release را می‌گیرد، asset مربوط به سیستم‌عاملش را برمی‌دارد و نسخه، حجم، آدرس دقیق و hash کامل را نشان می‌دهد. «دانلود» فایل را در یک پوشهٔ موقت می‌ریزد؛ «نصب و اجرای دوباره» فقط وقتی ظاهر می‌شود که hash bytes روی دیسک با آنچه ریلیز اعلام کرده برابر باشد.',
+    ups2: 'فایل release در ریشهٔ مخزن هم کنار آن خوانده می‌شود، برای چیزهایی که گیت‌هاب نمی‌تواند بیان کند: لیست نسخه‌های known-bad و آستانهٔ «هر نسخهٔ قدیمی‌تر از این باید بروزرسانی شود». این دو با هم ادغام می‌شوند و صفحهٔ تنظیمات می‌گوید کدام منبع پاسخ داده.',
+    prh: 'حریم خصوصی یک واقعیت در زمان build است، نه یک قول',
+    prs: 'برنامه با سه جور مقصد talk می‌کند: سرورهای خودتان، آدرس سابسکریپشنی که چسبانده‌اید، و گیت‌هاب برای بروزرسانی. همین فهرست در CI با grep روی سورس تضمین می‌شود؛ پس یک کامیت نمی‌تواند بی‌سروصدا تله‌متری اضافه کند.',
+    p1h: 'بدون حساب، بدون phone-home', p1p: 'هیچ crash reporter، هیچ analytics، هیچ «آمار استفادهٔ ناشناس». هنگام نصب، بازکردن یا بستن برنامه چیزی ارسال نمی‌شود.',
+    p2h: 'تنظیمات روی دیسک شما', p2p: 'پروفایل‌ها، گره‌ها و اندازه‌گیری‌ها به‌صورت JSON ساده در پوشهٔ تنظیمات خودتان نوشته می‌شوند؛ قابل خواندن، diff گرفتن و کپی‌کردن.',
+    p3h: 'پروب فقط پروب است', p3p: 'سنجش تأخیر یک handshake TLS با گرهٔ خودتان است با SNI قابل‌تنظیم. هیچ باری حمل نمی‌کند و هرگز به مقصد سوم نمی‌رود.',
+    blh: 'ساخته‌شده تا خوانده شود',
+    blp: 'Flutter و Dart روی موتور Xray-core (و sing-box به‌عنوان موتور جایگزین). انشعابی از کلاینت کسی نیست: UI، رتبه‌بندی، بسته‌بندی و خط انتشار اینجا نوشته شده‌اند و هر merge روی main نسخه را بالا می‌برد، tag می‌زند، installer می‌سازد و ریلیز را منتشر می‌کند.',
+    b1: 'موتورها', b2: 'پروتکل‌ها', b3: 'CI', b4h: 'همهٔ ریلیزها', b5h: 'گزارش مشکل',
+    foot1: 'ناکسلو دو یک پروژهٔ مستقل است؛ هیچ چیز نمی‌فروشد و هیچ سروری برای شما میزبانی نمی‌کند.',
+    foot2: 'جدول دانلود از ریلیز زنده تولید می‌شود — ببینید scripts/gen_site_index.sh را.'
+  };
+  var en = {};
+  document.querySelectorAll('[data-i18n]').forEach(function (el) { en[el.getAttribute('data-i18n')] = el.textContent; });
+
+  var lang = 'en';
+  document.getElementById('lang').addEventListener('click', function () {
+    lang = lang === 'en' ? 'fa' : 'en';
+    var rtl = lang === 'fa';
+    document.documentElement.lang = rtl ? 'fa' : 'en';
+    document.documentElement.dir = rtl ? 'rtl' : 'ltr';
+    document.body.classList.toggle('fa', rtl);
+    this.textContent = rtl ? 'English' : 'فارسی';
+    document.querySelectorAll('[data-i18n]').forEach(function (el) {
+      var key = el.getAttribute('data-i18n');
+      var text = rtl ? fa[key] : en[key];
+      if (text) el.textContent = text;
+    });
+  });
+
+  function copy(text, button) {
+    var done = function () {
+      var old = button.textContent;
+      button.textContent = 'copied';
+      setTimeout(function () { button.textContent = old; }, 1400);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { window.prompt('copy:', text); });
+    } else { window.prompt('copy:', text); }
+  }
+  document.querySelectorAll('.copy').forEach(function (b) {
+    b.addEventListener('click', function () { copy(b.getAttribute('data-copy'), b); });
+  });
+  // The install command and the verification example are read back out of the
+  // table instead of being typed a second time: a page where the checksum lives in
+  // three places is a page where one of them is wrong after the next release.
+  function linuxRow() {
+    var rows = document.querySelectorAll('tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+      var a = rows[i].querySelector('td.name a');
+      if (a && /\.deb$/.test(a.textContent)) return { href: a.getAttribute('href'), name: a.textContent, sha: (rows[i].querySelector('.sha') || {}).textContent || '' };
+    }
+    return null;
+  }
+  var linux = linuxRow();
+  var ver = (document.getElementById('ver') || {}).textContent || '';
+  var dl = document.getElementById('dlbtn');
+  if (dl && ver) dl.textContent = dl.textContent.replace('this release', ver);
+  if (linux) {
+    var block = /^[0-9a-f]{64}$/.test(linux.sha.trim()) ? linux.sha.trim() : '';
+    var cmd = 'curl -LO ' + linux.href + (block ? ' && echo "' + block + '  ' + linux.name + '" | sha256sum -c -' : '') + ' && sudo apt install ./' + linux.name;
+    document.getElementById('verify-cmd').textContent = block
+      ? 'echo "' + block + '  ' + linux.name + '" | sha256sum -c -'
+      : 'sha256sum ' + linux.name;
+    document.getElementById('copycmd').addEventListener('click', function () { copy(cmd, this); });
+  } else {
+    document.getElementById('copycmd').addEventListener('click', function () {
+      copy('https://github.com/Manixpcshot/Naxlo-Two/releases/latest', this);
+    });
+  }
+})();
+</script>
+</body>
+</html>
