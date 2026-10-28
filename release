@@ -1,15 +1,15 @@
 {
   "app": "naxlo_two",
   "filenum": 9,
-  "generatedAt": "2026-10-28T13:16:05Z",
+  "generatedAt": "2026-10-28T13:31:05Z",
   "windows": {
     "block": [],
     "stable": {
-      "version": "0.4.0",
-      "link": "https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.4.0/setup-Naxlo.x64.exe",
-      "details": "### Naxlo Two 0.4.0\n\n- fix: two settings that could never be changed, and the icons/patterns that do not exist\n- fix: RegExp has no const constructor, a closure-written local is not promotable, and the banner's hash is selectable text\n- feat(update): read GitHub's own Releases API, download, verify, install\n- chore(release): update manifest for main [skip ci]\n\nInstallers are building now: the Release workflow starts when this workflow finishes, builds the tree at this tag and attaches the artifacts here. Its publish job uploads whatever built and lists what did not.\n\nEngines bundled by this build: see `packaging/` notes. Installers are\nsha256-summed in `SHA256SUMS.txt`; the in-app updater verifies before installing.\n\n### Install\n\n| Platform | File |\n| --- | --- |\n| setup-Naxlo | `setup-Naxlo.x64.exe` |\n| Naxlo | `Naxlo.linux.x64.deb` |\n| Naxlo | `Naxlo.linux.x64.rpm` |\n| Naxlo | `Naxlo.linux.x64.pkg.tar.zst` |\n| Naxlo | `Naxlo.apk` |\n\n_Not built in this run (that platform job is red; the rows above are what exists): setup-Naxlo.arm64.exe Naxlo.macOS.universal.dmg Naxlo.linux.x64.AppImage_",
-      "sha256": "981b8f4bbf47d8e75b1de4544c94c675a71a57e2f09d65956065efb7784f9da1",
-      "size": 39984867,
+      "version": "0.4.1",
+      "link": "https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.4.1/setup-Naxlo.x64.exe",
+      "details": "### Naxlo Two 0.4.1\n\n- fix(release): refresh the website's download table from the release that just published\n- chore(release): update manifest for main [skip ci]\n\nInstallers are building now: the Release workflow starts when this workflow finishes, builds the tree at this tag and attaches the artifacts here. Its publish job uploads whatever built and lists what did not.\n\nEngines bundled by this build: see `packaging/` notes. Installers are\nsha256-summed in `SHA256SUMS.txt`; the in-app updater verifies before installing.\n\n### Install\n\n| Platform | File |\n| --- | --- |\n| setup-Naxlo | `setup-Naxlo.x64.exe` |\n| Naxlo | `Naxlo.linux.x64.deb` |\n| Naxlo | `Naxlo.linux.x64.rpm` |\n| Naxlo | `Naxlo.linux.x64.pkg.tar.zst` |\n| Naxlo | `Naxlo.apk` |\n\n_Not built in this run (that platform job is red; the rows above are what exists): setup-Naxlo.arm64.exe Naxlo.macOS.universal.dmg Naxlo.linux.x64.AppImage_",
+      "sha256": "6827ff8ee04af8050c02ca57a4de62e7914c7bcaf1174cb7ad5d38b8a2326c08",
+      "size": 39975751,
       "asset": "setup-Naxlo.x64.exe",
       "minSupported": "",
       "update": {
@@ -27,11 +27,11 @@
   "linux": {
     "block": [],
     "stable": {
-      "version": "0.4.0",
-      "link": "https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.4.0/Naxlo.linux.x64.deb",
-      "details": "### Naxlo Two 0.4.0\n\n- fix: two settings that could never be changed, and the icons/patterns that do not exist\n- fix: RegExp has no const constructor, a closure-written local is not promotable, and the banner's hash is selectable text\n- feat(update): read GitHub's own Releases API, download, verify, install\n- chore(release): update manifest for main [skip ci]\n\nInstallers are building now: the Release workflow starts when this workflow finishes, builds the tree at this tag and attaches the artifacts here. Its publish job uploads whatever built and lists what did not.\n\nEngines bundled by this build: see `packaging/` notes. Installers are\nsha256-summed in `SHA256SUMS.txt`; the in-app updater verifies before installing.\n\n### Install\n\n| Platform | File |\n| --- | --- |\n| setup-Naxlo | `setup-Naxlo.x64.exe` |\n| Naxlo | `Naxlo.linux.x64.deb` |\n| Naxlo | `Naxlo.linux.x64.rpm` |\n| Naxlo | `Naxlo.linux.x64.pkg.tar.zst` |\n| Naxlo | `Naxlo.apk` |\n\n_Not built in this run (that platform job is red; the rows above are what exists): setup-Naxlo.arm64.exe Naxlo.macOS.universal.dmg Naxlo.linux.x64.AppImage_",
-      "sha256": "7a5e09c14a5d91b6347b5d3978962899578e5e355d531001632f1db2f1dca81b",
-      "size": 40143294,
+      "version": "0.4.1",
+      "link": "https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.4.1/Naxlo.linux.x64.deb",
+      "details": "### Naxlo Two 0.4.1\n\n- fix(release): refresh the website's download table from the release that just published\n- chore(release): update manifest for main [skip ci]\n\nInstallers are building now: the Release workflow starts when this workflow finishes, builds the tree at this tag and attaches the artifacts here. Its publish job uploads whatever built and lists what did not.\n\nEngines bundled by this build: see `packaging/` notes. Installers are\nsha256-summed in `SHA256SUMS.txt`; the in-app updater verifies before installing.\n\n### Install\n\n| Platform | File |\n| --- | --- |\n| setup-Naxlo | `setup-Naxlo.x64.exe` |\n| Naxlo | `Naxlo.linux.x64.deb` |\n| Naxlo | `Naxlo.linux.x64.rpm` |\n| Naxlo | `Naxlo.linux.x64.pkg.tar.zst` |\n| Naxlo | `Naxlo.apk` |\n\n_Not built in this run (that platform job is red; the rows above are what exists): setup-Naxlo.arm64.exe Naxlo.macOS.universal.dmg Naxlo.linux.x64.AppImage_",
+      "sha256": "8b3643a22c0a368a7a8223a21ad3f89f551afb01ab43c4c26a2c335c77843887",
+      "size": 40143344,
       "asset": "Naxlo.linux.x64.deb",
       "minSupported": "",
       "update": {
@@ -44,11 +44,11 @@
   "android": {
     "block": [],
     "stable": {
-      "version": "0.4.0",
-      "link": "https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.4.0/Naxlo.android.arm64-v8a.apk",
-      "details": "### Naxlo Two 0.4.0\n\n- fix: two settings that could never be changed, and the icons/patterns that do not exist\n- fix: RegExp has no const constructor, a closure-written local is not promotable, and the banner's hash is selectable text\n- feat(update): read GitHub's own Releases API, download, verify, install\n- chore(release): update manifest for main [skip ci]\n\nInstallers are building now: the Release workflow starts when this workflow finishes, builds the tree at this tag and attaches the artifacts here. Its publish job uploads whatever built and lists what did not.\n\nEngines bundled by this build: see `packaging/` notes. Installers are\nsha256-summed in `SHA256SUMS.txt`; the in-app updater verifies before installing.\n\n### Install\n\n| Platform | File |\n| --- | --- |\n| setup-Naxlo | `setup-Naxlo.x64.exe` |\n| Naxlo | `Naxlo.linux.x64.deb` |\n| Naxlo | `Naxlo.linux.x64.rpm` |\n| Naxlo | `Naxlo.linux.x64.pkg.tar.zst` |\n| Naxlo | `Naxlo.apk` |\n\n_Not built in this run (that platform job is red; the rows above are what exists): setup-Naxlo.arm64.exe Naxlo.macOS.universal.dmg Naxlo.linux.x64.AppImage_",
-      "sha256": "1b401548e18c8b957698777638f85deca5e6399b82149734799acf9f0beff4cb",
-      "size": 8064763,
+      "version": "0.4.1",
+      "link": "https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.4.1/Naxlo.android.arm64-v8a.apk",
+      "details": "### Naxlo Two 0.4.1\n\n- fix(release): refresh the website's download table from the release that just published\n- chore(release): update manifest for main [skip ci]\n\nInstallers are building now: the Release workflow starts when this workflow finishes, builds the tree at this tag and attaches the artifacts here. Its publish job uploads whatever built and lists what did not.\n\nEngines bundled by this build: see `packaging/` notes. Installers are\nsha256-summed in `SHA256SUMS.txt`; the in-app updater verifies before installing.\n\n### Install\n\n| Platform | File |\n| --- | --- |\n| setup-Naxlo | `setup-Naxlo.x64.exe` |\n| Naxlo | `Naxlo.linux.x64.deb` |\n| Naxlo | `Naxlo.linux.x64.rpm` |\n| Naxlo | `Naxlo.linux.x64.pkg.tar.zst` |\n| Naxlo | `Naxlo.apk` |\n\n_Not built in this run (that platform job is red; the rows above are what exists): setup-Naxlo.arm64.exe Naxlo.macOS.universal.dmg Naxlo.linux.x64.AppImage_",
+      "sha256": "bba050b30a306de9b7a4e5c7317e0273ef38c070f847da6803b329e72d858674",
+      "size": 8064736,
       "asset": "Naxlo.android.arm64-v8a.apk",
       "minSupported": "",
       "update": {
