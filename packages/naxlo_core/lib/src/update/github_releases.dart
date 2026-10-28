@@ -118,7 +118,9 @@ abstract final class GithubReleases {
   /// here is never offered: `SHA256SUMS.txt` and the manifest itself are release
   /// assets too, and "latest Windows installer" resolving to a checksum file is a
   /// supply-chain bug that would look like a corrupt download.
-  static const Map<String, List<RegExp>> assetPatterns = <String, List<RegExp>>{
+  /// `final`, not `const`: `RegExp` has no const constructor, so the patterns are
+  /// compiled once per process on first use instead of at compile time.
+  static final Map<String, List<RegExp>> assetPatterns = <String, List<RegExp>>{
     'windows': <RegExp>[
       RegExp(r'^setup-Naxlo\.x64\.exe$', caseSensitive: false),
       RegExp(r'(?i)^naxlo.*x64.*\.exe$'),

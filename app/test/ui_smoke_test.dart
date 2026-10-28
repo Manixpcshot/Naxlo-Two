@@ -142,7 +142,14 @@ vless://22222222-2222-2222-2222-222222222222@slow.example.com:8443?security=real
 
     expect(find.textContaining('0.4.0'), findsWidgets);
     // The hash is the point of the banner: without it the button is a leap of faith.
-    expect(find.textContaining('ababab'), findsWidgets);
+    // It is selectable text (a digest you cannot copy is a digest you cannot check),
+    // which is why this matches on the widget rather than on find.text.
+    expect(
+      find.byWidgetPredicate(
+        (Widget w) => w is SelectableText && (w.data ?? '').contains('ababab'),
+      ),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey<String>('update-download')), findsOneWidget);
     expect(find.text('38.1 MB'), findsWidgets);
     // Nothing has been downloaded, so there is no way to install yet — the

@@ -326,7 +326,7 @@ class UpdateService {
       idle?.cancel();
       if (subscription != null) {
         try {
-          await subscription!.cancel();
+          await subscription.cancel();
         } on Object {
           // Already cancelled by the stream's own error handling.
         }
@@ -347,9 +347,10 @@ class UpdateService {
     if (failure == null && advertised > 0 && received != advertised) {
       failure = 'got $received bytes, the release advertises $advertised';
     }
-    if (failure != null) {
+    final String? why = failure;
+    if (why != null) {
       await _delete(part);
-      return UpdateDownload.failed(failure, path: part.path, bytes: received);
+      return UpdateDownload.failed(why, path: part.path, bytes: received);
     }
 
     await _delete(finalFile);
