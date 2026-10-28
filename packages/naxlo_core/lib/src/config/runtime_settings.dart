@@ -169,6 +169,7 @@ class RuntimeSettings {
     bool? checkForUpdates,
     String? manifestUrl,
     String? updateChannel,
+    bool? allowPrereleaseUpdates,
     bool? developerVerboseConfig,
   }) {
     return RuntimeSettings(
@@ -203,7 +204,7 @@ class RuntimeSettings {
       checkForUpdates: checkForUpdates ?? this.checkForUpdates,
       manifestUrl: manifestUrl ?? this.manifestUrl,
       updateChannel: updateChannel ?? this.updateChannel,
-      allowPrereleaseUpdates: allowPrereleaseUpdates,
+      allowPrereleaseUpdates: allowPrereleaseUpdates ?? this.allowPrereleaseUpdates,
       themeMode: themeMode ?? this.themeMode,
       locale: locale ?? this.locale,
       showLatencyMs: showLatencyMs,
@@ -239,6 +240,9 @@ class RuntimeSettings {
         'checkForUpdates': checkForUpdates,
         'manifestUrl': manifestUrl,
         'updateChannel': updateChannel,
+        // Written as well as read: a field that parses but never serialises is a
+        // setting that silently resets on the next start.
+        'allowPrereleaseUpdates': allowPrereleaseUpdates,
         'themeMode': themeMode,
         'locale': locale,
         'developerVerboseConfig': developerVerboseConfig,

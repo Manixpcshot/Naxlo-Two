@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
+import '../state/update_service.dart';
 import '../theme/palette.dart';
 import 'motion.dart';
 import 'servers_page.dart';
@@ -669,48 +670,250 @@ class _ConnectButton extends StatelessWidget {
     );
   }
 }
+/// The update banner — the only place the updater's honesty is visible.
+///
+/// It states the running version and the offered one, the byte size, the
+/// *exact* URL and the full sha256, because "an update is available, trust me"
+/// is not information and an auto-updater is the most attractive target in the
+/// whole app. The controls follow the state — announce, download, install — and
+/// Install only exists once the bytes on disk hash to what the release says they
+/// hash to. That gate is deliberate: it is the difference between "we fetched a
+/// file" and "we are about to run it".
 class _UpdateBanner extends StatelessWidget {
   const _UpdateBanner();
 
   @override
   Widget build(BuildContext context) {
-    final app = context.read<AppState>();
+    final app = context.watch<AppState>();
     final decision = app.updateAvailable;
     if (decision == null) return const SizedBox.shrink();
     final l10n = NaxloLocalizations.of(context);
+    final theme = Theme.of(context);
     final blocking = decision.isBlocking;
+    final accent = blocking ? Palette.rose : Palette.cyan;
+    final downloaded = app.updateDownload;
+    final progress = app.updateDownloadProgress;
+    final small = theme.textTheme.bodySmall!;
+    final mono = small.copyWith(fontFamily: 'monospace', fontSize: 11, height: 1.5);
+    final surface = theme.brightness == Brightness.dark ? Palette.ink0 : Palette.paperRaised;
+
+    void copy(String text) {
+      Clipboard.setData(ClipboardData(text: text));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${l10n.t('hint.copied')}: ${_shorten(text)}'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Panel(
-        child: Row(
+        tint: accent,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Icon(
-              blocking ? Icons.priority_high_rounded : Icons.system_update_alt_rounded,
-              color: blocking ? Palette.rose : Palette.cyan,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    blocking ? l10n.t('label.updateForced') : '${l10n.t('label.updateAvailable')} ${decision.available}',
-                    style: Theme.of(context).textTheme.titleSmall,
+            Row(
+              children: <Widget>[
+                Icon(
+                  blocking ? Icons.priority_high_rounded : Icons.system_update_alt_rounded,
+                  color: accent,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SwapText(
+                    text: blocking
+                        ? '${l10n.t('label.updateForced')} → ${decision.available}'
+                        : '${l10n.t('label.updateAvailable')} ${decision.available}',
+                    style: theme.textTheme.titleSmall,
                   ),
-                  if (decision.details.isNotEmpty)
-                    Text(decision.details, style: Theme.of(context).textTheme.bodySmall),
+                ),
+                Text(app.updateSource, style: small.copyWith(color: Palette.mutedInk)),
+                if (!blocking)
+                  IconButton(
+                    key: const Key('update-dismiss'),
+                    onPressed: app.dismissUpdate,
+                    tooltip: l10n.t('action.later'),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                  ),
+              ],
+            ),
+            if (decision.details.trim().isNotEmpty) ...<Widget>[
+              const SizedBox(height: 6),
+              Text(
+                _changelog(decision.details.trim()),
+                style: small,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: <Widget>[
+                _MetaChip(label: 'from', value: kNaxloVersion),
+                _MetaChip(label: 'to', value: decision.available),
+                _MetaChip(label: 'size', value: UpdateService.describeBytes(decision.size)),
+                if (decision.minSupported.isNotEmpty)
+                  _MetaChip(label: 'floor', value: decision.minSupported, alarm: true),
+              ],
+            ),
+            if (decision.downloadUrl.isNotEmpty || decision.sha256.isNotEmpty || downloaded != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: surface.withOpacity(0.45),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: accent.withOpacity(0.18)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      if (decision.downloadUrl.isNotEmpty)
+                        SelectableText(decision.downloadUrl, style: mono, maxLines: 2),
+                      if (decision.sha256.isNotEmpty)
+                        SelectableText('sha256 ${decision.sha256}', style: mono, maxLines: 2)
+                      else
+                        Text(l10n.t('label.noSha256'), style: mono.copyWith(color: Palette.amber)),
+                      if (downloaded != null)
+                        SelectableText(
+                          '${downloaded.state.name} · ${downloaded.path}',
+                          style: mono,
+                          maxLines: 2,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            if (progress != null) ...<Widget>[
+              const SizedBox(height: 12),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    // Determinate even when the total is unknown (value pinned to
+                    // 0 and the label says so): an indeterminate bar is an infinite
+                    // animation, and this tree has to settle for the widget tests.
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progress < 0 ? 0.0 : progress.clamp(0.0, 1.0),
+                        minHeight: 6,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(progress < 0 ? l10n.t('label.downloading') : '${(progress * 100).round()}%',
+                      style: small.copyWith(color: Palette.mutedInk)),
                 ],
               ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                if (progress != null)
+                  FilledButton(onPressed: null, child: Text(l10n.t('label.downloading')))
+                else if (downloaded != null && downloaded.installable)
+                  FilledButton.icon(
+                    key: const Key('update-install'),
+                    onPressed: app.installUpdateAndRestart,
+                    icon: const Icon(Icons.play_circle_outline_rounded, size: 18),
+                    label: Text(l10n.t('action.installRestart')),
+                  )
+                else if (decision.downloadUrl.isNotEmpty)
+                  FilledButton.icon(
+                    key: const Key('update-download'),
+                    onPressed: app.downloadUpdate,
+                    icon: Icon(downloaded == null ? Icons.download_rounded : Icons.refresh_rounded, size: 18),
+                    label: Text(downloaded == null ? l10n.t('action.download') : l10n.t('action.retry')),
+                  )
+                else
+                  FilledButton.icon(
+                    onPressed: () => copy(app.updater.releasesPage),
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: Text(l10n.t('action.openRelease')),
+                  ),
+                TextButton.icon(
+                  key: const Key('update-copy'),
+                  onPressed: () => copy(
+                    decision.downloadUrl.isEmpty ? app.updater.releasesPage : decision.downloadUrl,
+                  ),
+                  icon: const Icon(Icons.link_rounded, size: 16),
+                  label: Text(l10n.t('action.copyLink')),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: decision.downloadUrl));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('download URL copied — open it in your browser')),
-                );
-              },
-              child: const Text('get'),
+            if (downloaded != null && !downloaded.installable)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.warning_amber_rounded, size: 15, color: Palette.amber),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(downloaded.message, style: small.copyWith(color: Palette.amber))),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// GitHub's release body arrives as markdown. The banner is not a renderer and
+  /// a `## Heading` or a `- bullet` in a narrow card reads as a bug, so the markup
+  /// characters are dropped and the text is kept to what a person scans for.
+  static String _changelog(String body) {
+    final out = body
+        .replaceAll(RegExp(r'^#+\s*', multiLine: true), '')
+        .replaceAll(RegExp(r'^\s*[-*]\s+', multiLine: true), '· ')
+        .replaceAll(RegExp(r'\*\*?'), '')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trim();
+    return out;
+  }
+
+  static String _shorten(String text) {
+    if (text.length <= 64) return text;
+    return '${text.substring(0, 32)}…${text.substring(text.length - 24)}';
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.label, required this.value, this.alarm = false});
+
+  final String label;
+  final String value;
+  final bool alarm;
+
+  @override
+  Widget build(BuildContext context) {
+    final small = Theme.of(context).textTheme.bodySmall!;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: small.color!.withOpacity(0.12)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              label.toUpperCase(),
+              style: small.copyWith(color: Palette.mutedInk, fontSize: 9, letterSpacing: 0.6),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              value,
+              style: small.copyWith(color: alarm ? Palette.amber : null, fontWeight: FontWeight.w600),
             ),
           ],
         ),

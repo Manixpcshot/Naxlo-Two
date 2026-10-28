@@ -120,4 +120,46 @@ vless://22222222-2222-2222-2222-222222222222@slow.example.com:8443?security=real
     // Paint order is the contract: the top-ranked node is the topmost row.
     expect(tester.getTopLeft(find.text('FAST')).dy, lessThan(tester.getTopLeft(find.text('SLOW')).dy));
   });
+
+  testWidgets('the update banner states version, size and hash before it offers a button', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    final app = buildApp();
+    // Injected before the first frame, because a decision that arrives later is a
+    // different test (and the real one already has to survive it: the banner reads
+    // the state, so it repaints whenever the updater answers).
+    app.updateAvailable = const UpdateDecision(
+      action: UpdateAction.update,
+      reason: '0.4.0 is available',
+      available: '0.4.0',
+      downloadUrl: 'https://github.com/Manixpcshot/Naxlo-Two/releases/download/v0.4.0/setup-Naxlo.x64.exe',
+      sha256: 'abababababababababababababababababababababababababababababababab',
+      size: 39952829,
+      assetName: 'setup-Naxlo.x64.exe',
+    );
+    await tester.pumpWidget(NaxloApp(state: app));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('0.4.0'), findsWidgets);
+    // The hash is the point of the banner: without it the button is a leap of faith.
+    // It is selectable text (a digest you cannot copy is a digest you cannot check),
+    // which is why this matches on the widget rather than on find.text.
+    expect(
+      find.byWidgetPredicate(
+        (Widget w) => w is SelectableText && (w.data ?? '').contains('ababab'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('update-download')), findsOneWidget);
+    expect(find.text('38.1 MB'), findsWidgets);
+    // Nothing has been downloaded, so there is no way to install yet — the
+    // Install control must not exist as a disabled decoy, it must be absent.
+    expect(find.byKey(const ValueKey<String>('update-install')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey<String>('update-dismiss')));
+    await tester.pumpAndSettle();
+    expect(app.updateAvailable, isNull);
+    expect(find.byKey(const ValueKey<String>('update-download')), findsNothing);
+    app.dispose();
+  });
 }

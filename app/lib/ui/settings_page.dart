@@ -126,11 +126,16 @@ class SettingsPage extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.system_update_alt_rounded),
                     title: Text(l10n.t('label.checkUpdates')),
+                    // The last error is shown *instead of* the timestamp, and the
+                    // source is always appended: "up to date" is a very different
+                    // claim when the endpoint that should have answered it was a
+                    // 404, and a settings screen that cannot tell the two apart is
+                    // how an unreachable update server becomes invisible.
                     subtitle: Text(
-                      app.updater.lastError ??
-                          (app.updater.lastCheckAt == null
-                              ? l10n.t('action.checkUpdates')
-                              : 'last check ${_ago(app.updater.lastCheckAt!)}'),
+                      '${app.updater.lastError ?? (app.updater.lastCheckAt == null
+                          ? l10n.t('action.checkUpdates')
+                          : 'last check ${_ago(app.updater.lastCheckAt!)}')}'
+                      '\n${l10n.t('label.updateSource')}: ${app.updater.lastSource}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
@@ -146,8 +151,28 @@ class SettingsPage extends StatelessWidget {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text(l10n.t('label.checkUpdates')),
+                    subtitle: Text(
+                      'settings.manifestUrl in config.json overrides the source',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                     value: s.checkForUpdates,
                     onChanged: (v) => app.updateSettings(s.copyWith(checkForUpdates: v)),
+                  ),
+                  // Which release train to follow. With GitHub Releases as the
+                  // inventory, "beta" means prereleases — the tag is the channel,
+                  // so there is no separate beta feed to keep in sync.
+                  _DropdownRow<String>(
+                    label: l10n.t('label.updateChannel'),
+                    value: s.updateChannel,
+                    values: const <String>['stable', 'beta'],
+                    labelOf: (v) => v,
+                    onChanged: (v) => app.updateSettings(s.copyWith(updateChannel: v)),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(l10n.t('label.acceptPrereleases'), style: Theme.of(context).textTheme.titleSmall),
+                    value: s.allowPrereleaseUpdates,
+                    onChanged: (v) => app.updateSettings(s.copyWith(allowPrereleaseUpdates: v)),
                   ),
                   _DropdownRow<String>(
                     label: l10n.t('label.language'),

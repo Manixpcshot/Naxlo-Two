@@ -28,6 +28,7 @@ export 'src/sharelink/share_link.dart';
 export 'src/singbox/singbox_config.dart';
 export 'src/store/profile_bundle.dart';
 export 'src/subscription/subscription.dart';
+export 'src/update/github_releases.dart';
 export 'src/update/release_manifest.dart';
 export 'src/update/semver.dart';
 export 'src/util/net_addr.dart';
