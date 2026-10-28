@@ -1,4 +1,4 @@
-(0.3.0) unstable; urgency=medium
+(0.4.0) unstable; urgency=medium
 
   * First release: Xray-core and sing-box engines, two ranking modes
     (ping-style and EWMA + Thompson sampling) with configurable weights,
