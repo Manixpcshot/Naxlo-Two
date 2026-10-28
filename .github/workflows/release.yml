@@ -853,9 +853,26 @@ jobs:
           fi
 
       - name: Commit manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
         run: |
           git config user.name "naxlo-release-bot"
           git config user.email "bot@naxlo.dev"
+          # Refresh the website's download table from the release that was just
+          # published, in this same commit. Done here rather than in a PR because a
+          # table pinned to "the newest release" can otherwise only be updated by
+          # merging something — and merging something publishes another release, so
+          # the page would spend its life chasing its own repository. Advisory on
+          # purpose: a stale table must never fail a release, and every link on the
+          # page still resolves because the assets it names exist by now.
+          if bash scripts/gen_site_index.sh "$TAG" > site.log 2>&1; then
+            tail -2 site.log
+            git add site/index.html
+          else
+            echo "::warning::site/index.html was not refreshed for $TAG (download links still work; the checksum table is one release behind)"
+            tail -25 site.log
+          fi
           git add release
           if git diff --cached --quiet; then
             echo "manifest unchanged"
