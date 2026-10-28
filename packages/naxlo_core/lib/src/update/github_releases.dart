@@ -119,32 +119,35 @@ abstract final class GithubReleases {
   /// assets too, and "latest Windows installer" resolving to a checksum file is a
   /// supply-chain bug that would look like a corrupt download.
   /// `final`, not `const`: `RegExp` has no const constructor, so the patterns are
-  /// compiled once per process on first use instead of at compile time.
+  /// compiled once per process on first use instead of at compile time. And
+  /// `caseSensitive: false` rather than an inline `(?i)`: Dart's RegExp follows the
+  /// JavaScript syntax, where an inline flag group is a *parse error* — thrown on
+  /// first touch, which for a lazy static means every later call re-throws it.
   static final Map<String, List<RegExp>> assetPatterns = <String, List<RegExp>>{
     'windows': <RegExp>[
       RegExp(r'^setup-Naxlo\.x64\.exe$', caseSensitive: false),
-      RegExp(r'(?i)^naxlo.*x64.*\.exe$'),
-      RegExp(r'(?i)setup.*\.exe$'),
+      RegExp(r'^naxlo.*x64.*\.exe$', caseSensitive: false),
+      RegExp(r'setup.*\.exe$', caseSensitive: false),
     ],
     'macos': <RegExp>[
-      RegExp(r'(?i)universal\.dmg$'),
-      RegExp(r'(?i)\.dmg$'),
-      RegExp(r'(?i)\.pkg$'),
+      RegExp(r'universal\.dmg$', caseSensitive: false),
+      RegExp(r'\.dmg$', caseSensitive: false),
+      RegExp(r'\.pkg$', caseSensitive: false),
     ],
     'linux': <RegExp>[
-      RegExp(r'(?i)(x64|amd64)\.deb$'),
-      RegExp(r'(?i)\.deb$'),
-      RegExp(r'(?i)\.AppImage$'),
-      RegExp(r'(?i)\.rpm$'),
-      RegExp(r'(?i)\.pkg\.tar\.zst$'),
+      RegExp(r'(x64|amd64)\.deb$', caseSensitive: false),
+      RegExp(r'\.deb$', caseSensitive: false),
+      RegExp(r'\.AppImage$', caseSensitive: false),
+      RegExp(r'\.rpm$', caseSensitive: false),
+      RegExp(r'\.pkg\.tar\.zst$', caseSensitive: false),
     ],
     'android': <RegExp>[
-      RegExp(r'(?i)universal.*\.apk$'),
-      RegExp(r'(?i)arm64-v8a.*\.apk$'),
-      RegExp(r'(?i)^naxlo.*\.apk$'),
-      RegExp(r'(?i)\.apk$'),
+      RegExp(r'universal.*\.apk$', caseSensitive: false),
+      RegExp(r'arm64-v8a.*\.apk$', caseSensitive: false),
+      RegExp(r'^naxlo.*\.apk$', caseSensitive: false),
+      RegExp(r'\.apk$', caseSensitive: false),
     ],
-    'ios': <RegExp>[RegExp(r'(?i)\.ipa$')],
+    'ios': <RegExp>[RegExp(r'\.ipa$', caseSensitive: false)],
   };
 
   /// The rank of `name` for `platform`, or -1 when it is not an installer.

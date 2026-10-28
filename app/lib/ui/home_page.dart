@@ -824,7 +824,7 @@ class _UpdateBanner extends StatelessWidget {
                   FilledButton.icon(
                     key: const Key('update-install'),
                     onPressed: app.installUpdateAndRestart,
-                    icon: const Icon(Icons.play_install_rounded, size: 18),
+                    icon: const Icon(Icons.play_circle_outline_rounded, size: 18),
                     label: Text(l10n.t('action.installRestart')),
                   )
                 else if (decision.downloadUrl.isNotEmpty)
@@ -855,7 +855,7 @@ class _UpdateBanner extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 8),
                 child: Row(
                   children: <Widget>[
-                    const Icon(Icons.verified_user_off_rounded, size: 15, color: Palette.amber),
+                    const Icon(Icons.warning_amber_rounded, size: 15, color: Palette.amber),
                     const SizedBox(width: 6),
                     Expanded(child: Text(downloaded.message, style: small.copyWith(color: Palette.amber))),
                   ],

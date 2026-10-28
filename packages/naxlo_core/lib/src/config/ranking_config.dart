@@ -214,6 +214,7 @@ class RankingConfig {
     double? exploration,
     bool? penalizeDown,
     bool? loadSpread,
+    int? maxSamplesKept,
   }) {
     return RankingConfig(
       mode: mode ?? this.mode,
@@ -232,7 +233,7 @@ class RankingConfig {
       exploration: exploration ?? this.exploration,
       penalizeDown: penalizeDown ?? this.penalizeDown,
       loadSpread: loadSpread ?? this.loadSpread,
-      maxSamplesKept: maxSamplesKept,
+      maxSamplesKept: maxSamplesKept ?? this.maxSamplesKept,
     );
   }
 
