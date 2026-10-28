@@ -197,6 +197,22 @@ uploaded. So `release` at a tag ref describes the previous release, and
 `release` at `main` describes the newest one. The app reads `main`.
 `scripts/gen_site_index.sh` checks the two agree and says so when they cannot.
 
+## The website
+
+`site/index.html` is one self-contained file (no CDN, no `fetch`), so it opens from
+a checkout, from a USB stick, and from Drive preview alike. Its download table is
+generated — `scripts/gen_site_index.sh` reads the release assets, prefers exactly
+the assets the app prefers, emits a "not built for this release" row instead of a
+404, and cross-checks GitHub's digest against the `release` manifest.
+
+The release pipeline refreshes it in the *same commit* as the manifest
+(`Release → Commit manifest`), deliberately: a table pinned to "the newest
+release" could otherwise only be updated by merging a pull request, and merging a
+pull request publishes another release — so the page would spend its life chasing
+its own repository. The refresh step is advisory: a stale table is a cosmetic
+problem, and a failed documentation refresh must never withhold installers that
+were built and published successfully.
+
 ## Platform notes
 
 **Windows.** Inno Setup builds `setup-Naxlo.x64.exe`. Per-user install by default
